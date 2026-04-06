@@ -1,0 +1,43 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+node_modules/
+
+# Generated outputs (runtime artifacts)
+output/frames/
+output/*.png
+output/*.gif
+
+# User-supplied mesh assets (not tracked in repo)
+assets/
+testassets/
+.glb tests/
+
+# Tools (large binaries — manual download, see README)
+tools/realesrgan-ncnn-vulkan/
+
+# Claude internal
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
