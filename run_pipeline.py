@@ -5,11 +5,17 @@ Usage:
     python run_pipeline.py [options]
 
 Phase 1 — Render (always runs):
-    --mesh         PATH   .glb file to render. Omit for built-in test primitive.
-    --sprite-size  INT    Final sprite size in pixels (square). Default: 64.
-    --render-size  INT    Blender internal resolution. Default: sprite-size * 4.
+    --mesh           PATH   .glb file to render. Omit for built-in test primitive.
+    --sprite-size    INT    Final sprite size in pixels (square). Default: 64.
+    --render-size    INT    Blender internal resolution. Default: sprite-size * 4.
+    --frame-start    INT    First animation frame. Omit for single-frame (scene default).
+    --frame-end      INT    Last animation frame. Omit for single-frame (scene default).
 
-Phase 2 — Refinement (opt-in, runs after Phase 1):
+    Animation mode is active when both --frame-start and --frame-end are supplied
+    and frame-end > frame-start. Output: 8 sprite sheets in output/sheets/.
+    Single-frame mode (default): one combined sheet at output/sprite_sheet.png.
+
+Phase 2 — Refinement (opt-in, single-frame only, runs after Phase 1):
     --upscale             Run Real-ESRGAN x4 pixel art upscale.
     --colors       INT    Quantize palette to N colors (0 = skip). Default: 0.
                           Useful values: 8, 16, 32, 64.
@@ -38,6 +44,7 @@ TRIPO3D_SCRIPT   = PROJECT_ROOT / "scripts" / "tripo3d.py"
 OUTPUT_FRAMES    = PROJECT_ROOT / "output" / "frames"
 OUTPUT_SHEET     = PROJECT_ROOT / "output" / "sprite_sheet.png"
 OUTPUT_REFINED   = PROJECT_ROOT / "output" / "sprite_sheet_refined.png"
+OUTPUT_SHEETS    = PROJECT_ROOT / "output" / "sheets"
 ASSETS_DIR       = PROJECT_ROOT / "assets"
 
 
@@ -51,6 +58,10 @@ def parse_args():
                         help="Final sprite size in pixels (square). Default: 64.")
     parser.add_argument("--render-size", type=int, default=None,
                         help="Blender render resolution. Default: sprite-size * 4.")
+    parser.add_argument("--frame-start", type=int, default=None,
+                        help="Phase 1: First animation frame. Requires --frame-end.")
+    parser.add_argument("--frame-end", type=int, default=None,
+                        help="Phase 1: Last animation frame. Requires --frame-start.")
 
     # Phase 2
     parser.add_argument("--upscale", action="store_true",
@@ -74,6 +85,8 @@ def parse_args():
         parser.error("--generate-mesh requires --tripo-prompt or --tripo-image.")
     if args.tripo_prompt and args.tripo_image:
         parser.error("--tripo-prompt and --tripo-image are mutually exclusive.")
+    if (args.frame_start is None) != (args.frame_end is None):
+        parser.error("--frame-start and --frame-end must be used together.")
 
     return args
 
@@ -93,7 +106,7 @@ def run_tripo3d(prompt, image, outfile):
     return outfile
 
 
-def run_blender(mesh_path, render_size):
+def run_blender(mesh_path, render_size, frame_start=None, frame_end=None):
     cmd = [
         str(BLENDER_EXE),
         "--background",
@@ -105,23 +118,44 @@ def run_blender(mesh_path, render_size):
     ]
     if mesh_path:
         cmd += ["--mesh", str(Path(mesh_path).resolve())]
+    if frame_start is not None:
+        cmd += ["--frame-start", str(frame_start), "--frame-end", str(frame_end)]
 
     print(f"\n[PixelForge] Phase 1 Step 1/2: Blender headless render ({render_size}px)...")
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print("\n[PixelForge] ERROR: Blender render failed.")
+    result = subprocess.run(cmd, capture_output=False)
+    # Blender exits with code 0 even when its embedded Python script crashes,
+    # so check for the completion marker in addition to the return code.
+    is_animation = frame_start is not None and frame_end is not None and frame_end > frame_start
+    if is_animation:
+        success = (OUTPUT_FRAMES / "N").is_dir() and any((OUTPUT_FRAMES / "N").glob("*.png"))
+    else:
+        success = (OUTPUT_FRAMES / "N.png").exists()
+    if result.returncode != 0 or not success:
+        print("\n[PixelForge] ERROR: Blender render failed (see output above).")
         sys.exit(1)
 
 
-def run_assemble(sprite_size):
-    cmd = [
-        str(PYTHON_EXE),
-        str(ASSEMBLE_SCRIPT),
-        "--framesdir", str(OUTPUT_FRAMES),
-        "--outfile",   str(OUTPUT_SHEET),
-        "--size",      str(sprite_size),
-    ]
-    print(f"\n[PixelForge] Phase 1 Step 2/2: Assembling sprite sheet ({sprite_size}px)...")
+def run_assemble(sprite_size, animate=False):
+    if animate:
+        cmd = [
+            str(PYTHON_EXE),
+            str(ASSEMBLE_SCRIPT),
+            "--framesdir", str(OUTPUT_FRAMES),
+            "--outdir",    str(OUTPUT_SHEETS),
+            "--size",      str(sprite_size),
+            "--animate",
+        ]
+        print(f"\n[PixelForge] Phase 1 Step 2/2: Assembling animation sheets ({sprite_size}px, 8 directions)...")
+    else:
+        cmd = [
+            str(PYTHON_EXE),
+            str(ASSEMBLE_SCRIPT),
+            "--framesdir", str(OUTPUT_FRAMES),
+            "--outfile",   str(OUTPUT_SHEET),
+            "--size",      str(sprite_size),
+        ]
+        print(f"\n[PixelForge] Phase 1 Step 2/2: Assembling sprite sheet ({sprite_size}px)...")
+
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print("\n[PixelForge] ERROR: Assembly failed. Is Pillow installed?")
@@ -153,13 +187,21 @@ def run_refine(upscale, colors, dither):
 def main():
     args = parse_args()
     sprite_size  = args.sprite_size
-    render_size  = args.render_size or sprite_size * 4
+    render_size  = args.render_size or sprite_size
     run_phase2   = args.upscale or args.colors > 0
     mesh_path    = args.mesh
+    is_animation = (
+        args.frame_start is not None
+        and args.frame_end is not None
+        and args.frame_end > args.frame_start
+    )
 
     print(f"\n[PixelForge] Pipeline starting")
     print(f"[PixelForge]   Sprite size : {sprite_size}x{sprite_size}px")
     print(f"[PixelForge]   Render size : {render_size}x{render_size}px (internal)")
+    if is_animation:
+        num_frames = args.frame_end - args.frame_start + 1
+        print(f"[PixelForge]   Animation   : frames {args.frame_start}–{args.frame_end} ({num_frames} frames, 8 sheets)")
     if args.generate_mesh:
         src = args.tripo_prompt or args.tripo_image
         print(f"[PixelForge]   Phase 3     : Tripo3D ({src})")
@@ -176,18 +218,25 @@ def main():
         run_tripo3d(args.tripo_prompt, args.tripo_image, generated)
         mesh_path = str(generated)
 
-    # Phase 1 — render
-    run_blender(mesh_path, render_size)
-    run_assemble(sprite_size)
+    # Phase 1 — render + assemble
+    run_blender(mesh_path, render_size, args.frame_start, args.frame_end)
+    run_assemble(sprite_size, animate=is_animation)
 
-    # Phase 2 — refinement (opt-in)
+    # Phase 2 — refinement (opt-in, single-frame only)
     if run_phase2:
-        run_refine(args.upscale, args.colors, args.dither)
+        if is_animation:
+            print(f"\n[PixelForge] Phase 2: Skipped in animation mode (refine each sheet individually with refine.py).")
+        else:
+            run_refine(args.upscale, args.colors, args.dither)
 
     print(f"\n[PixelForge] Done!")
-    print(f"[PixelForge]   Sprite sheet : {OUTPUT_SHEET}")
-    if run_phase2:
-        print(f"[PixelForge]   Refined      : {OUTPUT_REFINED}")
+    if is_animation:
+        for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
+            print(f"[PixelForge]   {d:2s} : {OUTPUT_SHEETS / f'sprite_sheet_{d}.png'}")
+    else:
+        print(f"[PixelForge]   Sprite sheet : {OUTPUT_SHEET}")
+        if run_phase2:
+            print(f"[PixelForge]   Refined      : {OUTPUT_REFINED}")
 
 
 if __name__ == "__main__":

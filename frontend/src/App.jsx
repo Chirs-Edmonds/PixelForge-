@@ -5,6 +5,8 @@ import { StatusBar } from './components/StatusBar'
 import { RefinementPanel } from './components/RefinementPanel'
 import { SpriteSheetOutput } from './components/SpriteSheetOutput'
 
+const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
 export default function App() {
   const [meshFilename, setMeshFilename]     = useState(null)
   const [renderJobId, setRenderJobId]       = useState(null)
@@ -12,8 +14,11 @@ export default function App() {
   const [isRendering, setIsRendering]       = useState(false)
   const [spriteSheetUrl, setSpriteSheetUrl] = useState(null)
   const [refinedUrl, setRefinedUrl]         = useState(null)
+  const [animationUrls, setAnimationUrls]   = useState(null)
+  const [animConfig, setAnimConfig]         = useState(null)
 
-  // Prevent onDone from firing on re-renders after already triggered
+  // Use a ref to track animConfig inside callbacks without stale closure issues
+  const animConfigRef = useRef(null)
   const renderDoneRef = useRef(false)
 
   function handleRenderDone() {
@@ -21,7 +26,20 @@ export default function App() {
     renderDoneRef.current = true
     setRenderDone(true)
     setIsRendering(false)
-    setSpriteSheetUrl(`/api/output/sprite_sheet.png?t=${Date.now()}`)
+
+    const config = animConfigRef.current
+    if (config?.isAnimation) {
+      const ts = Date.now()
+      const urls = {}
+      DIRECTIONS.forEach(d => {
+        urls[d] = `/api/output/sheets/sprite_sheet_${d}.png?t=${ts}`
+      })
+      setAnimationUrls(urls)
+      setSpriteSheetUrl(null)
+    } else {
+      setSpriteSheetUrl(`/api/output/sprite_sheet.png?t=${Date.now()}`)
+      setAnimationUrls(null)
+    }
   }
 
   function handleRenderError() {
@@ -29,12 +47,27 @@ export default function App() {
     setIsRendering(false)
   }
 
-  function handleNewRender(jobId) {
+  function handleRenderAttempting() {
+    // Called the instant the Render button is clicked, before the POST resolves.
+    // Clears all old job state so stale status from a previous run never lingers.
     renderDoneRef.current = false
+    setRenderDone(false)
+    setIsRendering(false)
+    setSpriteSheetUrl(null)
+    setRefinedUrl(null)
+    setAnimationUrls(null)
+    setRenderJobId(null)
+  }
+
+  function handleNewRender(jobId, config) {
+    renderDoneRef.current = false
+    animConfigRef.current = config
+    setAnimConfig(config)
     setRenderDone(false)
     setIsRendering(true)
     setSpriteSheetUrl(null)
     setRefinedUrl(null)
+    setAnimationUrls(null)
     setRenderJobId(jobId)
   }
 
@@ -56,6 +89,7 @@ export default function App() {
         <RenderSettings
           meshFilename={meshFilename}
           onRenderStarted={handleNewRender}
+          onRenderAttempting={handleRenderAttempting}
           isRendering={isRendering}
           disabled={false}
         />
@@ -69,13 +103,15 @@ export default function App() {
         )}
 
         <RefinementPanel
-          disabled={!renderDone}
+          disabled={!renderDone || !!animConfig?.isAnimation}
           onRefined={setRefinedUrl}
         />
 
         <SpriteSheetOutput
           spriteSheetUrl={spriteSheetUrl}
           refinedUrl={refinedUrl}
+          animationUrls={animationUrls}
+          frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
         />
       </main>
     </div>
