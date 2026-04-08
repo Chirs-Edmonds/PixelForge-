@@ -31,7 +31,7 @@ export function StatusBar({ jobId, onDone, onError }) {
       )}
       {isDone && <span className="shrink-0">✓</span>}
       {isError && <span className="shrink-0">✗</span>}
-      <span>{isError ? (status.error || 'An error occurred.') : status.progress_msg}</span>
+      <span>{isError ? (status.error || status.progress_msg || 'An error occurred.') : status.progress_msg}</span>
     </div>
   )
 }

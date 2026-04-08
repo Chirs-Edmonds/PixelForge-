@@ -5,10 +5,8 @@ export function useJobStatus(jobId) {
   const intervalRef = useRef(null)
 
   useEffect(() => {
-    if (!jobId) {
-      setStatus(null)
-      return
-    }
+    setStatus(null) // always clear when jobId changes (prevents stale state on server restart)
+    if (!jobId) return
 
     const poll = async () => {
       try {
