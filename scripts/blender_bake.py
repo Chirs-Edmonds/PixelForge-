@@ -7,14 +7,14 @@ Usage (via Blender CLI):
     blender.exe --background --factory-startup --python scripts/blender_bake.py -- \
         --outdir output/frames \
         --size 256 \
-        [--mesh path/to/mesh.glb] \
+        [--mesh path/to/mesh.glb|.blend|.fbx|.obj] \
         [--frame-start 1 --frame-end 24]
 
 Arguments (after the "--" separator):
     --outdir       PATH  Directory to write PNG frames into (required)
     --size         INT   Render resolution per frame, square (default: 256)
-    --mesh         PATH  Path to a .glb file to import. If omitted, a humanoid test
-                         primitive is generated automatically.
+    --mesh         PATH  Path to a mesh file to import (.glb, .gltf, .blend, .fbx, .obj).
+                         If omitted, a humanoid test primitive is generated automatically.
     --frame-start  INT   First frame to render (default: scene frame_start)
     --frame-end    INT   Last frame to render (default: scene frame_end)
 
@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument("--size", type=int, default=256,
                         help="Render resolution per frame (square). Default: 256.")
     parser.add_argument("--mesh", type=str, default=None,
-                        help="Path to .glb file. If omitted, generates test primitive.")
+                        help="Path to mesh file (.glb, .gltf, .blend, .fbx, .obj). If omitted, generates test primitive.")
     parser.add_argument("--frame-start", type=int, default=None,
                         help="First frame to render. Default: scene frame_start.")
     parser.add_argument("--frame-end", type=int, default=None,

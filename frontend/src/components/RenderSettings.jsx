@@ -93,7 +93,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
           ))}
         </div>
         <p className="text-xs text-white/30 mt-2">
-          Blender renders at {spriteSize * 4}px internally, downscaled to {spriteSize}px output.
+          Renders at {spriteSize}×{spriteSize}px. Use larger sizes for higher detail.
         </p>
       </div>
 
