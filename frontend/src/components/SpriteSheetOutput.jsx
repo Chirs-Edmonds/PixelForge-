@@ -158,7 +158,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
               <img
                 src={mergedUrl}
                 alt="Master sprite sheet"
-                style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * 64}px`, minWidth: '100%', display: 'block' }}
+                style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block' }}
                 className="rounded"
               />
               <div className="mt-2 flex flex-col gap-0.5">

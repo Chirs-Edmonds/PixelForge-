@@ -266,7 +266,7 @@ def _run_render_inner(
         else:
             shutil.copy2(out_sheet, dest / out_sheet.name)
 
-    merged_url = f"/output/sheets/{name}_all.png" if (is_animation and merge_sheets) else None
+    merged_url = f"/api/output/sheets/{name}_all.png" if (is_animation and merge_sheets) else None
 
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",
