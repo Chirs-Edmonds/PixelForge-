@@ -28,16 +28,17 @@ export default function App() {
     setIsRendering(false)
 
     const config = animConfigRef.current
+    const name = config?.name || 'sprite_sheet'
     if (config?.isAnimation) {
       const ts = Date.now()
       const urls = {}
       DIRECTIONS.forEach(d => {
-        urls[d] = `/api/output/sheets/sprite_sheet_${d}.png?t=${ts}`
+        urls[d] = `/api/output/sheets/${name}_${d}.png?t=${ts}`
       })
       setAnimationUrls(urls)
       setSpriteSheetUrl(null)
     } else {
-      setSpriteSheetUrl(`/api/output/sprite_sheet.png?t=${Date.now()}`)
+      setSpriteSheetUrl(`/api/output/${name}.png?t=${Date.now()}`)
       setAnimationUrls(null)
     }
   }
@@ -112,6 +113,8 @@ export default function App() {
           refinedUrl={refinedUrl}
           animationUrls={animationUrls}
           frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
+          spriteSize={animConfig?.spriteSize}
+          spriteName={animConfig?.name || 'sprite_sheet'}
         />
       </main>
     </div>

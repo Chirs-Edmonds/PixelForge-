@@ -62,6 +62,8 @@ def parse_args():
                         help="Phase 1: First animation frame. Requires --frame-end.")
     parser.add_argument("--frame-end", type=int, default=None,
                         help="Phase 1: Last animation frame. Requires --frame-start.")
+    parser.add_argument("--name", type=str, default="sprite_sheet",
+                        help="Output filename prefix. Default: sprite_sheet.")
 
     # Phase 2
     parser.add_argument("--upscale", action="store_true",
@@ -135,15 +137,16 @@ def run_blender(mesh_path, render_size, frame_start=None, frame_end=None):
         sys.exit(1)
 
 
-def run_assemble(sprite_size, animate=False):
+def run_assemble(sprite_size, animate=False, outfile=None, outdir=None, name="sprite_sheet"):
     if animate:
         cmd = [
             str(PYTHON_EXE),
             str(ASSEMBLE_SCRIPT),
             "--framesdir", str(OUTPUT_FRAMES),
-            "--outdir",    str(OUTPUT_SHEETS),
+            "--outdir",    str(outdir or OUTPUT_SHEETS),
             "--size",      str(sprite_size),
             "--animate",
+            "--prefix",    name,
         ]
         print(f"\n[PixelForge] Phase 1 Step 2/2: Assembling animation sheets ({sprite_size}px, 8 directions)...")
     else:
@@ -151,7 +154,7 @@ def run_assemble(sprite_size, animate=False):
             str(PYTHON_EXE),
             str(ASSEMBLE_SCRIPT),
             "--framesdir", str(OUTPUT_FRAMES),
-            "--outfile",   str(OUTPUT_SHEET),
+            "--outfile",   str(outfile or OUTPUT_SHEET),
             "--size",      str(sprite_size),
         ]
         print(f"\n[PixelForge] Phase 1 Step 2/2: Assembling sprite sheet ({sprite_size}px)...")
@@ -163,12 +166,12 @@ def run_assemble(sprite_size, animate=False):
         sys.exit(1)
 
 
-def run_refine(upscale, colors, dither):
+def run_refine(upscale, colors, dither, infile=None, outfile=None):
     cmd = [
         str(PYTHON_EXE),
         str(REFINE_SCRIPT),
-        "--infile",  str(OUTPUT_SHEET),
-        "--outfile", str(OUTPUT_REFINED),
+        "--infile",  str(infile or OUTPUT_SHEET),
+        "--outfile", str(outfile or OUTPUT_REFINED),
     ]
     if upscale:
         cmd.append("--upscale")
@@ -196,6 +199,10 @@ def main():
         and args.frame_end > args.frame_start
     )
 
+    output_sheet = PROJECT_ROOT / "output" / f"{args.name}.png"
+    output_refined = PROJECT_ROOT / "output" / f"{args.name}_refined.png"
+    output_sheets = OUTPUT_SHEETS
+
     print(f"\n[PixelForge] Pipeline starting")
     print(f"[PixelForge]   Sprite size : {sprite_size}x{sprite_size}px")
     print(f"[PixelForge]   Render size : {render_size}x{render_size}px (internal)")
@@ -220,23 +227,23 @@ def main():
 
     # Phase 1 — render + assemble
     run_blender(mesh_path, render_size, args.frame_start, args.frame_end)
-    run_assemble(sprite_size, animate=is_animation)
+    run_assemble(sprite_size, animate=is_animation, outfile=output_sheet, outdir=output_sheets, name=args.name)
 
     # Phase 2 — refinement (opt-in, single-frame only)
     if run_phase2:
         if is_animation:
             print(f"\n[PixelForge] Phase 2: Skipped in animation mode (refine each sheet individually with refine.py).")
         else:
-            run_refine(args.upscale, args.colors, args.dither)
+            run_refine(args.upscale, args.colors, args.dither, infile=output_sheet, outfile=output_refined)
 
     print(f"\n[PixelForge] Done!")
     if is_animation:
         for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
-            print(f"[PixelForge]   {d:2s} : {OUTPUT_SHEETS / f'sprite_sheet_{d}.png'}")
+            print(f"[PixelForge]   {d:2s} : {output_sheets / f'{args.name}_{d}.png'}")
     else:
-        print(f"[PixelForge]   Sprite sheet : {OUTPUT_SHEET}")
+        print(f"[PixelForge]   Sprite sheet : {output_sheet}")
         if run_phase2:
-            print(f"[PixelForge]   Refined      : {OUTPUT_REFINED}")
+            print(f"[PixelForge]   Refined      : {output_refined}")
 
 
 if __name__ == "__main__":

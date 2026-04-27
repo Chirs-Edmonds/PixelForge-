@@ -7,6 +7,7 @@ Routes:
     GET  /status/{id}   Poll job status
 """
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -28,7 +29,6 @@ PYTHON_EXE      = Path(r"C:\Users\chris\AppData\Local\Programs\Python\Python312\
 BAKE_SCRIPT     = PROJECT_ROOT / "scripts" / "blender_bake.py"
 ASSEMBLE_SCRIPT = PROJECT_ROOT / "scripts" / "assemble_sheet.py"
 OUTPUT_FRAMES   = PROJECT_ROOT / "output" / "frames"
-OUTPUT_SHEET    = PROJECT_ROOT / "output" / "sprite_sheet.png"
 OUTPUT_SHEETS   = PROJECT_ROOT / "output" / "sheets"
 ASSETS_DIR      = PROJECT_ROOT / "assets"
 
@@ -57,11 +57,15 @@ async def upload_mesh(file: UploadFile = File(...)):
 # Render endpoint
 # ---------------------------------------------------------------------------
 
+_SAFE_NAME = re.compile(r'[^a-zA-Z0-9_-]')
+
+
 class RenderRequest(BaseModel):
     sprite_size: int = 64
     mesh_path: str | None = None      # filename within assets/, or None for test primitive
     frame_start: int | None = None    # animation: first frame
     frame_end: int | None = None      # animation: last frame
+    name: str = "sprite_sheet"        # output filename prefix (sanitized server-side)
 
 
 @router.post("/render")
@@ -77,10 +81,12 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     if (req.frame_start is None) != (req.frame_end is None):
         raise HTTPException(400, "frame_start and frame_end must both be provided for animation.")
 
+    safe_name = _SAFE_NAME.sub('_', req.name).strip('_') or 'sprite_sheet'
+
     job_id = str(uuid.uuid4())
     create_job(job_id)
     background_tasks.add_task(
-        _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end
+        _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end, safe_name
     )
     return {"job_id": job_id}
 
@@ -127,9 +133,10 @@ def _run_render(
     mesh_path: str | None,
     frame_start: int | None,
     frame_end: int | None,
+    name: str = "sprite_sheet",
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
@@ -144,8 +151,10 @@ def _run_render_inner(
     mesh_path: str | None,
     frame_start: int | None,
     frame_end: int | None,
+    name: str = "sprite_sheet",
 ) -> None:
     render_size = sprite_size
+    out_sheet = PROJECT_ROOT / "output" / f"{name}.png"
     is_animation = (
         frame_start is not None
         and frame_end is not None
@@ -207,6 +216,7 @@ def _run_render_inner(
             "--outdir",    str(OUTPUT_SHEETS),
             "--size",      str(sprite_size),
             "--animate",
+            "--prefix",    name,
         ]
     else:
         update_job(job_id, step="assemble",
@@ -215,7 +225,7 @@ def _run_render_inner(
             str(PYTHON_EXE),
             str(ASSEMBLE_SCRIPT),
             "--framesdir", str(OUTPUT_FRAMES),
-            "--outfile",   str(OUTPUT_SHEET),
+            "--outfile",   str(out_sheet),
             "--size",      str(sprite_size),
         ]
 
@@ -229,7 +239,7 @@ def _run_render_inner(
 
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",
-               output="sheets/" if is_animation else "sprite_sheet.png")
+               output=f"sheets/{name}" if is_animation else f"{name}.png")
 
 
 # ---------------------------------------------------------------------------

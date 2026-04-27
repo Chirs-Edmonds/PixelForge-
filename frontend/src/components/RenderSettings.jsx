@@ -7,6 +7,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [isAnimation, setIsAnimation] = useState(false)
   const [frameStart, setFrameStart] = useState(1)
   const [frameEnd, setFrameEnd] = useState(24)
+  const [outputName, setOutputName] = useState('')
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
 
@@ -26,6 +27,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       const body = {
         sprite_size: spriteSize,
         mesh_path: meshFilename || null,
+        name: outputName.trim() || 'sprite_sheet',
       }
       if (isAnimation) {
         body.frame_start = frameStart
@@ -39,7 +41,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`)
-      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize })
+      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, name: outputName.trim() || 'sprite_sheet' })
     } catch (e) {
       // Network errors (backend not running) show as "Failed to fetch"
       const msg = e.message === 'Failed to fetch'
@@ -133,6 +135,20 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
             )}
           </div>
         )}
+      </div>
+
+      {/* Output name */}
+      <div className="mb-4">
+        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Output name (optional)</p>
+        <input
+          type="text"
+          maxLength={40}
+          placeholder="sprite_sheet"
+          value={outputName}
+          onChange={e => setOutputName(e.target.value)}
+          className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-white/20"
+        />
+        <p className="text-xs text-white/30 mt-1.5">Names the output file(s). Defaults to <code className="text-white/40">sprite_sheet</code>.</p>
       </div>
 
       <div className="mb-4 text-xs text-white/50">

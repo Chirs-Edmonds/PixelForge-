@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, frameCount }) {
+export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet' }) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
@@ -66,8 +66,8 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
         {/* Preview + controls */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 flex gap-6 items-center flex-wrap">
           {/* Animated preview — clips to one frame at a time.
-              Each frame in the sheet is square (spriteSize × spriteSize),
-              so at 192px display height each frame is also 192px wide. */}
+              Frames are always square, so at 192px display height each frame is 192px wide.
+              Width is set explicitly (not 'auto') to avoid shrink-to-fit on absolute elements. */}
           <div>
             <p className="text-xs text-white/30 mb-2 text-center">Preview — {selectedDir}</p>
             <div style={{ width: 192, height: 192, overflow: 'hidden', position: 'relative', borderRadius: 8, background: 'rgba(255,255,255,0.03)' }}>
@@ -77,7 +77,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
                 style={{
                   imageRendering: 'pixelated',
                   height: '192px',
-                  width: 'auto',
+                  width: `${frameCount * 192}px`,
                   position: 'absolute',
                   top: 0,
                   left: 0,
@@ -131,7 +131,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
               <a
                 key={dir}
                 href={animationUrls[dir]}
-                download={`sprite_sheet_${dir}.png`}
+                download={`${spriteName}_${dir}.png`}
                 className="text-xs bg-white/5 hover:bg-white/10 border border-white/20 text-white/60 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
               >
                 ↓ {dir}
@@ -153,7 +153,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
         <h2 className="text-lg font-semibold text-white">4. Output</h2>
         <a
           href={activeUrl}
-          download={refinedUrl ? 'sprite_sheet_refined.png' : 'sprite_sheet.png'}
+          download={refinedUrl ? `${spriteName}_refined.png` : `${spriteName}.png`}
           className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
         >
           Download PNG
@@ -193,7 +193,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
           </div>
           <a
             href={spriteSheetUrl}
-            download="sprite_sheet_original.png"
+            download={`${spriteName}_original.png`}
             className="mt-2 inline-block text-xs text-white/40 hover:text-white/70 transition-colors"
           >
             Download original

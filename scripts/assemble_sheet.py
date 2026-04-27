@@ -60,6 +60,8 @@ def parse_args():
                         help="Target sprite size in pixels (square). Default: 64.")
     parser.add_argument("--animate", action="store_true",
                         help="Animation mode: assemble per-direction sheets from subdirectories.")
+    parser.add_argument("--prefix", type=str, default="sprite_sheet",
+                        help="Output filename prefix. Default: sprite_sheet.")
     args = parser.parse_args()
 
     if args.animate and not args.outdir:
@@ -102,11 +104,12 @@ def assemble_single(frames_dir, out_file, size):
     print("[PixelForge] assemble_sheet.py complete.")
 
 
-def assemble_animation(frames_dir, out_dir, size):
+def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet"):
     print(f"[PixelForge] assemble_sheet.py starting (animation mode)")
     print(f"[PixelForge] Frames dir  : {frames_dir}")
     print(f"[PixelForge] Output dir  : {out_dir}")
     print(f"[PixelForge] Sprite size : {size}x{size}")
+    print(f"[PixelForge] Prefix      : {prefix}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -129,7 +132,7 @@ def assemble_animation(frames_dir, out_dir, size):
             img = Image.open(fpath).convert("RGBA").resize((size, size), Image.LANCZOS)
             sheet.paste(img, (i * size, 0))
 
-        out_file = out_dir / f"sprite_sheet_{direction}.png"
+        out_file = out_dir / f"{prefix}_{direction}.png"
         sheet.save(str(out_file), "PNG")
         print(f"[PixelForge]   {direction}: {num_frames} frames -> {out_file}  ({sheet_width}x{size}px)")
 
@@ -142,7 +145,7 @@ def main():
     size = args.size
 
     if args.animate:
-        assemble_animation(frames_dir, Path(args.outdir), size)
+        assemble_animation(frames_dir, Path(args.outdir), size, prefix=args.prefix)
     else:
         assemble_single(frames_dir, Path(args.outfile), size)
 
