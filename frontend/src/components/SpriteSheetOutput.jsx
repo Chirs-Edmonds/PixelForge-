@@ -70,21 +70,19 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
               Width is set explicitly (not 'auto') to avoid shrink-to-fit on absolute elements. */}
           <div>
             <p className="text-xs text-white/30 mb-2 text-center">Preview — {selectedDir}</p>
-            <div style={{ width: 192, height: 192, overflow: 'hidden', position: 'relative', borderRadius: 8, background: 'rgba(255,255,255,0.03)' }}>
-              <img
-                src={selectedUrl}
-                alt={`Direction ${selectedDir}`}
-                style={{
-                  imageRendering: 'pixelated',
-                  height: '192px',
-                  width: `${frameCount * 192}px`,
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  transform: `translateX(-${currentFrame * 192}px)`,
-                }}
-              />
-            </div>
+            <div
+              style={{
+                width: 192,
+                height: 192,
+                borderRadius: 8,
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                imageRendering: 'pixelated',
+                backgroundImage: `url("${selectedUrl}")`,
+                backgroundSize: `${frameCount * 192}px 192px`,
+                backgroundPosition: `-${currentFrame * 192}px 0px`,
+                backgroundRepeat: 'no-repeat',
+              }}
+            />
             <p className="text-xs text-white/20 mt-1.5 text-center">
               Frame {currentFrame + 1} / {frameCount}
             </p>
