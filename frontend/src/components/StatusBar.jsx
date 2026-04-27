@@ -9,7 +9,7 @@ export function StatusBar({ jobId, onDone, onError }) {
 
   // Call callbacks in effects — never during render
   useEffect(() => {
-    if (isDone && onDone) onDone()
+    if (isDone && onDone) onDone(status)
   }, [isDone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

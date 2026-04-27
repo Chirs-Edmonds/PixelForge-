@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet' }) {
+export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet', mergedUrl }) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
@@ -125,7 +125,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
 
         {/* Download one per direction */}
         <div>
-          <p className="text-xs text-white/30 mb-2">Download</p>
+          <p className="text-xs text-white/30 mb-2">Download per direction</p>
           <div className="flex gap-2 flex-wrap">
             {DIRECTIONS.map(dir => (
               <a
@@ -139,6 +139,36 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
             ))}
           </div>
         </div>
+
+        {/* Merged master sheet */}
+        {mergedUrl && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-white/50 uppercase tracking-wider">Master sheet — all directions</p>
+              <a
+                href={mergedUrl}
+                download={`${spriteName}_all.png`}
+                className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                ↓ Download master sheet
+              </a>
+            </div>
+            <div className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
+              <p className="text-xs text-white/20 mb-2">8 rows (N → NW) × {frameCount} frames — {spriteName}_all.png</p>
+              <img
+                src={mergedUrl}
+                alt="Master sprite sheet"
+                style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * 64}px`, minWidth: '100%', display: 'block' }}
+                className="rounded"
+              />
+              <div className="mt-2 flex flex-col gap-0.5">
+                {DIRECTIONS.map(d => (
+                  <div key={d} className="text-xs text-white/20 leading-none" style={{ height: '8px' }}>{d}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

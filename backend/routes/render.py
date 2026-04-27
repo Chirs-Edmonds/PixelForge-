@@ -39,10 +39,13 @@ VALID_SIZES = {16, 32, 64, 128, 256}
 # Upload endpoint
 # ---------------------------------------------------------------------------
 
+_ALLOWED_MESH_EXTENSIONS = (".glb", ".gltf", ".blend", ".fbx", ".obj")
+
+
 @router.post("/upload-mesh")
 async def upload_mesh(file: UploadFile = File(...)):
-    if not file.filename.endswith(".glb"):
-        raise HTTPException(400, "Only .glb files are supported.")
+    if not file.filename.lower().endswith(_ALLOWED_MESH_EXTENSIONS):
+        raise HTTPException(400, "Supported formats: .glb, .gltf, .blend, .fbx, .obj")
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     dest = ASSETS_DIR / file.filename
@@ -66,6 +69,8 @@ class RenderRequest(BaseModel):
     frame_start: int | None = None    # animation: first frame
     frame_end: int | None = None      # animation: last frame
     name: str = "sprite_sheet"        # output filename prefix (sanitized server-side)
+    output_dir: str | None = None     # optional extra copy destination (e.g. game asset repo)
+    merge_sheets: bool = False        # animation only: also produce a combined 8-row master sheet
 
 
 @router.post("/render")
@@ -83,10 +88,18 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
 
     safe_name = _SAFE_NAME.sub('_', req.name).strip('_') or 'sprite_sheet'
 
+    if req.output_dir:
+        out_dir = Path(req.output_dir)
+        if not out_dir.is_absolute():
+            raise HTTPException(400, "output_dir must be an absolute path.")
+        if not out_dir.is_dir():
+            raise HTTPException(400, f"output_dir does not exist: {req.output_dir}")
+
     job_id = str(uuid.uuid4())
     create_job(job_id)
     background_tasks.add_task(
-        _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end, safe_name
+        _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
+        safe_name, req.output_dir, req.merge_sheets
     )
     return {"job_id": job_id}
 
@@ -134,9 +147,11 @@ def _run_render(
     frame_start: int | None,
     frame_end: int | None,
     name: str = "sprite_sheet",
+    output_dir: str | None = None,
+    merge_sheets: bool = False,
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
@@ -152,6 +167,8 @@ def _run_render_inner(
     frame_start: int | None,
     frame_end: int | None,
     name: str = "sprite_sheet",
+    output_dir: str | None = None,
+    merge_sheets: bool = False,
 ) -> None:
     render_size = sprite_size
     out_sheet = PROJECT_ROOT / "output" / f"{name}.png"
@@ -218,6 +235,8 @@ def _run_render_inner(
             "--animate",
             "--prefix",    name,
         ]
+        if merge_sheets:
+            cmd.append("--merge")
     else:
         update_job(job_id, step="assemble",
                    progress_msg=f"Step 2/2: Assembling {sprite_size}px sprite sheet...")
@@ -237,9 +256,22 @@ def _run_render_inner(
                    error=error_msg)
         return
 
+    # Copy final outputs to user-specified directory if requested
+    if output_dir:
+        dest = Path(output_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        if is_animation:
+            for f in OUTPUT_SHEETS.glob(f"{name}_*.png"):
+                shutil.copy2(f, dest / f.name)
+        else:
+            shutil.copy2(out_sheet, dest / out_sheet.name)
+
+    merged_url = f"/output/sheets/{name}_all.png" if (is_animation and merge_sheets) else None
+
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",
-               output=f"sheets/{name}" if is_animation else f"{name}.png")
+               output=f"sheets/{name}" if is_animation else f"{name}.png",
+               merged_url=merged_url)
 
 
 # ---------------------------------------------------------------------------

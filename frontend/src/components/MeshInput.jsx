@@ -27,9 +27,11 @@ export function MeshInput({ onMeshReady }) {
     }
   }, [tripoStatus?.status, tripoStatus?.output]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const ALLOWED_EXTENSIONS = ['.glb', '.gltf', '.blend', '.fbx', '.obj']
+
   async function handleFileUpload(file) {
-    if (!file || !file.name.endsWith('.glb')) {
-      alert('Please upload a .glb file.')
+    if (!file || !ALLOWED_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))) {
+      alert('Supported formats: .glb, .gltf, .blend, .fbx, .obj')
       return
     }
     setUploading(true)
@@ -86,7 +88,7 @@ export function MeshInput({ onMeshReady }) {
                 : 'text-white/50 hover:text-white hover:bg-white/10'
             }`}
           >
-            {t === 'upload' ? 'Upload .glb' : 'Generate (Tripo3D)'}
+            {t === 'upload' ? 'Upload Mesh' : 'Generate (Tripo3D)'}
           </button>
         ))}
       </div>
@@ -111,7 +113,7 @@ export function MeshInput({ onMeshReady }) {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".glb"
+              accept=".glb,.gltf,.blend,.fbx,.obj"
               className="hidden"
               onChange={e => handleFileUpload(e.target.files[0])}
             />
@@ -121,8 +123,8 @@ export function MeshInput({ onMeshReady }) {
               <p className="text-green-400 font-medium">{uploadedFile} ✓</p>
             ) : (
               <>
-                <p className="text-white/60 text-sm">Drag & drop a .glb file here</p>
-                <p className="text-white/30 text-xs mt-1">or click to browse</p>
+                <p className="text-white/60 text-sm">Drag & drop a mesh file here</p>
+                <p className="text-white/30 text-xs mt-1">.glb · .gltf · .blend · .fbx · .obj — or click to browse</p>
               </>
             )}
           </div>

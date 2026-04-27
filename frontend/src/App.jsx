@@ -16,12 +16,13 @@ export default function App() {
   const [refinedUrl, setRefinedUrl]         = useState(null)
   const [animationUrls, setAnimationUrls]   = useState(null)
   const [animConfig, setAnimConfig]         = useState(null)
+  const [mergedUrl, setMergedUrl]           = useState(null)
 
   // Use a ref to track animConfig inside callbacks without stale closure issues
   const animConfigRef = useRef(null)
   const renderDoneRef = useRef(false)
 
-  function handleRenderDone() {
+  function handleRenderDone(jobData) {
     if (renderDoneRef.current) return
     renderDoneRef.current = true
     setRenderDone(true)
@@ -37,9 +38,15 @@ export default function App() {
       })
       setAnimationUrls(urls)
       setSpriteSheetUrl(null)
+      if (jobData?.merged_url) {
+        setMergedUrl(`${jobData.merged_url}?t=${ts}`)
+      } else {
+        setMergedUrl(null)
+      }
     } else {
       setSpriteSheetUrl(`/api/output/${name}.png?t=${Date.now()}`)
       setAnimationUrls(null)
+      setMergedUrl(null)
     }
   }
 
@@ -57,6 +64,7 @@ export default function App() {
     setSpriteSheetUrl(null)
     setRefinedUrl(null)
     setAnimationUrls(null)
+    setMergedUrl(null)
     setRenderJobId(null)
   }
 
@@ -69,6 +77,7 @@ export default function App() {
     setSpriteSheetUrl(null)
     setRefinedUrl(null)
     setAnimationUrls(null)
+    setMergedUrl(null)
     setRenderJobId(jobId)
   }
 
@@ -115,6 +124,7 @@ export default function App() {
           frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
           spriteSize={animConfig?.spriteSize}
           spriteName={animConfig?.name || 'sprite_sheet'}
+          mergedUrl={mergedUrl}
         />
       </main>
     </div>

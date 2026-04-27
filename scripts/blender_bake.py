@@ -112,8 +112,22 @@ def load_or_generate_mesh(args, scene):
         mesh_path = os.path.abspath(args.mesh)
         if not os.path.exists(mesh_path):
             raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
-        bpy.ops.import_scene.gltf(filepath=mesh_path)
-        print(f"[PixelForge] Imported mesh: {mesh_path}")
+        ext = os.path.splitext(mesh_path)[1].lower()
+        if ext in (".glb", ".gltf"):
+            bpy.ops.import_scene.gltf(filepath=mesh_path)
+        elif ext == ".blend":
+            with bpy.data.libraries.load(mesh_path) as (data_from, data_to):
+                data_to.objects = list(data_from.objects)
+            for obj in data_to.objects:
+                if obj is not None:
+                    scene.collection.objects.link(obj)
+        elif ext == ".fbx":
+            bpy.ops.import_scene.fbx(filepath=mesh_path)
+        elif ext == ".obj":
+            bpy.ops.wm.obj_import(filepath=mesh_path)
+        else:
+            raise ValueError(f"Unsupported mesh format: {ext!r}. Supported: .glb, .gltf, .blend, .fbx, .obj")
+        print(f"[PixelForge] Imported mesh ({ext}): {mesh_path}")
     else:
         print("[PixelForge] No mesh provided — generating humanoid test primitive.")
         _generate_humanoid(scene)

@@ -62,6 +62,8 @@ def parse_args():
                         help="Animation mode: assemble per-direction sheets from subdirectories.")
     parser.add_argument("--prefix", type=str, default="sprite_sheet",
                         help="Output filename prefix. Default: sprite_sheet.")
+    parser.add_argument("--merge", action="store_true",
+                        help="Animation mode only: also produce a combined master sheet with all 8 directions as rows.")
     args = parser.parse_args()
 
     if args.animate and not args.outdir:
@@ -104,7 +106,7 @@ def assemble_single(frames_dir, out_file, size):
     print("[PixelForge] assemble_sheet.py complete.")
 
 
-def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet"):
+def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet", merge=False):
     print(f"[PixelForge] assemble_sheet.py starting (animation mode)")
     print(f"[PixelForge] Frames dir  : {frames_dir}")
     print(f"[PixelForge] Output dir  : {out_dir}")
@@ -112,6 +114,8 @@ def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet"):
     print(f"[PixelForge] Prefix      : {prefix}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    direction_sheets = []  # list of (direction, sheet Image) for optional merge
 
     for direction in DIRECTION_ORDER:
         dir_path = frames_dir / direction
@@ -135,6 +139,16 @@ def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet"):
         out_file = out_dir / f"{prefix}_{direction}.png"
         sheet.save(str(out_file), "PNG")
         print(f"[PixelForge]   {direction}: {num_frames} frames -> {out_file}  ({sheet_width}x{size}px)")
+        direction_sheets.append(sheet)
+
+    if merge and direction_sheets:
+        num_frames = direction_sheets[0].width // size
+        master = Image.new("RGBA", (num_frames * size, 8 * size), (0, 0, 0, 0))
+        for row, sheet in enumerate(direction_sheets):
+            master.paste(sheet, (0, row * size))
+        merged_file = out_dir / f"{prefix}_all.png"
+        master.save(str(merged_file), "PNG")
+        print(f"[PixelForge]   merged: {merged_file}  ({num_frames * size}x{8 * size}px — 8 directions × {num_frames} frames)")
 
     print("[PixelForge] assemble_sheet.py complete.")
 
@@ -145,7 +159,7 @@ def main():
     size = args.size
 
     if args.animate:
-        assemble_animation(frames_dir, Path(args.outdir), size, prefix=args.prefix)
+        assemble_animation(frames_dir, Path(args.outdir), size, prefix=args.prefix, merge=args.merge)
     else:
         assemble_single(frames_dir, Path(args.outfile), size)
 
