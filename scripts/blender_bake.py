@@ -365,9 +365,11 @@ def main():
     corners = get_bbox_corners(bbox_min, bbox_max)
     compute_global_ortho_scale(cam_ob, center, corners)
 
-    frame_start = args.frame_start if args.frame_start is not None else scene.frame_start
-    frame_end   = args.frame_end   if args.frame_end   is not None else scene.frame_end
-    is_animation = frame_end > frame_start
+    is_animation = (args.frame_start is not None
+                    and args.frame_end is not None
+                    and args.frame_end > args.frame_start)
+    frame_start  = args.frame_start if args.frame_start is not None else scene.frame_start
+    frame_end    = args.frame_end   if args.frame_end   is not None else frame_start
 
     if is_animation:
         print(f"[PixelForge] Animation mode: frames {frame_start}–{frame_end} ({frame_end - frame_start + 1} frames)")
@@ -383,6 +385,7 @@ def main():
         f.write("ok")
 
     print("[PixelForge] blender_bake.py complete.")
+    bpy.ops.wm.quit_blender()
 
 
 if __name__ == "__main__":

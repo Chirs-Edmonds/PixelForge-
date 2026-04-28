@@ -15,8 +15,10 @@ export default function App() {
   const [spriteSheetUrl, setSpriteSheetUrl] = useState(null)
   const [refinedUrl, setRefinedUrl]         = useState(null)
   const [animationUrls, setAnimationUrls]   = useState(null)
-  const [animConfig, setAnimConfig]         = useState(null)
-  const [mergedUrl, setMergedUrl]           = useState(null)
+  const [animConfig, setAnimConfig]                   = useState(null)
+  const [mergedUrl, setMergedUrl]                     = useState(null)
+  const [refinedAnimationUrls, setRefinedAnimationUrls] = useState(null)
+  const [refinedMergedUrl, setRefinedMergedUrl]         = useState(null)
 
   // Use a ref to track animConfig inside callbacks without stale closure issues
   const animConfigRef = useRef(null)
@@ -55,6 +57,19 @@ export default function App() {
     setIsRendering(false)
   }
 
+  function handleAnimationRefined(data) {
+    const ts = Date.now()
+    const name = animConfig?.name || 'sprite_sheet'
+    const urls = {}
+    DIRECTIONS.forEach(d => {
+      urls[d] = `/api/output/sheets/${name}_${d}_refined.png?t=${ts}`
+    })
+    setRefinedAnimationUrls(urls)
+    if (data?.has_master) {
+      setRefinedMergedUrl(`/api/output/sheets/${name}_all_refined.png?t=${ts}`)
+    }
+  }
+
   function handleRenderAttempting() {
     // Called the instant the Render button is clicked, before the POST resolves.
     // Clears all old job state so stale status from a previous run never lingers.
@@ -65,6 +80,8 @@ export default function App() {
     setRefinedUrl(null)
     setAnimationUrls(null)
     setMergedUrl(null)
+    setRefinedAnimationUrls(null)
+    setRefinedMergedUrl(null)
     setRenderJobId(null)
   }
 
@@ -78,6 +95,8 @@ export default function App() {
     setRefinedUrl(null)
     setAnimationUrls(null)
     setMergedUrl(null)
+    setRefinedAnimationUrls(null)
+    setRefinedMergedUrl(null)
     setRenderJobId(jobId)
   }
 
@@ -113,18 +132,22 @@ export default function App() {
         )}
 
         <RefinementPanel
-          disabled={!renderDone || !!animConfig?.isAnimation}
+          disabled={!renderDone}
           onRefined={setRefinedUrl}
+          onAnimationRefined={handleAnimationRefined}
+          animConfig={animConfig}
         />
 
         <SpriteSheetOutput
           spriteSheetUrl={spriteSheetUrl}
           refinedUrl={refinedUrl}
           animationUrls={animationUrls}
+          refinedAnimationUrls={refinedAnimationUrls}
           frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
           spriteSize={animConfig?.spriteSize}
           spriteName={animConfig?.name || 'sprite_sheet'}
           mergedUrl={mergedUrl}
+          refinedMergedUrl={refinedMergedUrl}
         />
       </main>
     </div>

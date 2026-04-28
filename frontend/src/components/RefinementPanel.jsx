@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const COLOR_OPTIONS = [
   { value: 0,  label: 'Off' },
@@ -8,39 +8,40 @@ const COLOR_OPTIONS = [
   { value: 64, label: '64' },
 ]
 
-export function RefinementPanel({ disabled, onRefined }) {
+export function RefinementPanel({ disabled, onRefined, onAnimationRefined, animConfig }) {
   const [upscale, setUpscale]         = useState(false)
   const [colors, setColors]           = useState(0)
   const [dither, setDither]           = useState(false)
   const [running, setRunning]         = useState(false)
   const [error, setError]             = useState(null)
   const [success, setSuccess]         = useState(false)
-  const [esrganAvailable, setEsrganAvailable] = useState(null) // null = checking
 
-  useEffect(() => {
-    fetch('/api/check-esrgan')
-      .then(r => r.json())
-      .then(d => setEsrganAvailable(d.available))
-      .catch(() => setEsrganAvailable(false))
-  }, [])
-
-  const effectiveUpscale = upscale && esrganAvailable === true
-  const nothingToDo = !effectiveUpscale && colors === 0
+  const nothingToDo = !upscale && colors === 0
+  const isAnimation = !!animConfig?.isAnimation
 
   async function handleRefine() {
     setError(null)
     setSuccess(false)
     setRunning(true)
     try {
+      const body = { upscale, colors, dither }
+      if (isAnimation) {
+        body.is_animation = true
+        body.name = animConfig.name || 'sprite_sheet'
+      }
       const res = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upscale: effectiveUpscale, colors, dither }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Refinement failed')
       setSuccess(true)
-      onRefined(`/api/output/${data.output}?t=${Date.now()}`)
+      if (isAnimation) {
+        onAnimationRefined(data)
+      } else {
+        onRefined(`/api/output/${data.output}?t=${Date.now()}`)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -53,31 +54,13 @@ export function RefinementPanel({ disabled, onRefined }) {
       <h2 className="text-lg font-semibold text-white mb-4">3. Refinement</h2>
 
       {/* Upscale toggle */}
-      <div className={`flex items-center gap-3 mb-4 ${esrganAvailable === false ? 'opacity-50' : 'cursor-pointer'}`}>
-        <div
-          onClick={() => esrganAvailable && setUpscale(v => !v)}
-          className={`w-10 h-5 rounded-full transition-colors shrink-0 ${upscale && esrganAvailable ? 'bg-violet-600' : 'bg-white/20'} ${esrganAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-        >
-          <div className={`w-4 h-4 rounded-full bg-white mt-0.5 transition-transform ${upscale && esrganAvailable ? 'translate-x-5' : 'translate-x-0.5'}`} />
+      <div className="flex items-center gap-3 mb-4 cursor-pointer" onClick={() => setUpscale(v => !v)}>
+        <div className={`w-10 h-5 rounded-full transition-colors shrink-0 ${upscale ? 'bg-violet-600' : 'bg-white/20'}`}>
+          <div className={`w-4 h-4 rounded-full bg-white mt-0.5 transition-transform ${upscale ? 'translate-x-5' : 'translate-x-0.5'}`} />
         </div>
         <div>
-          <span className="text-sm text-white">Real-ESRGAN ×4 upscale</span>
-          {esrganAvailable === false ? (
-            <p className="text-xs text-amber-400">
-              Binary not found —{' '}
-              <a
-                href="https://github.com/xinntao/Real-ESRGAN/releases"
-                target="_blank"
-                rel="noreferrer"
-                className="underline hover:text-amber-300"
-              >
-                download realesrgan-ncnn-vulkan-*-windows.zip
-              </a>
-              {' '}and extract to <code className="font-mono">tools/realesrgan-ncnn-vulkan/</code>
-            </p>
-          ) : (
-            <p className="text-xs text-white/40">Pixel art anime model — requires binary in tools/</p>
-          )}
+          <span className="text-sm text-white">Pixel art ×4 upscale</span>
+          <p className="text-xs text-white/40">Nearest-neighbour — preserves hard pixel edges</p>
         </div>
       </div>
 
@@ -122,7 +105,11 @@ export function RefinementPanel({ disabled, onRefined }) {
         disabled={running || nothingToDo || disabled}
         className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
       >
-        {running ? 'Refining...' : nothingToDo ? 'Enable upscale or palette to refine' : 'Refine'}
+        {running
+          ? (isAnimation ? 'Refining all sheets...' : 'Refining...')
+          : nothingToDo
+            ? 'Enable upscale or palette to refine'
+            : isAnimation ? 'Refine all sheets' : 'Refine'}
       </button>
     </div>
   )

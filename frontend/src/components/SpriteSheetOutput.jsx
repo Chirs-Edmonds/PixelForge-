@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet', mergedUrl }) {
+export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, refinedAnimationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet', mergedUrl, refinedMergedUrl }) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
@@ -37,12 +37,22 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
 
   // ── Animation mode ──────────────────────────────────────────────────────────
   if (animationUrls) {
-    const selectedUrl = animationUrls[selectedDir]
+    const isRefined = !!refinedAnimationUrls
+    const activeUrls = refinedAnimationUrls || animationUrls
+    const selectedUrl = activeUrls[selectedDir]
+    const activeMergedUrl = refinedMergedUrl || mergedUrl
 
     return (
       <div className="bg-white/5 border border-white/10 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">4. Output</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">4. Output</h2>
+            {isRefined && (
+              <span className="text-xs bg-violet-600/30 border border-violet-500/40 text-violet-300 px-2 py-0.5 rounded-full">
+                Refined
+              </span>
+            )}
+          </div>
           <span className="text-xs text-white/40">{frameCount} frames × 8 directions</span>
         </div>
 
@@ -65,11 +75,10 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
 
         {/* Preview + controls */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 flex gap-6 items-center flex-wrap">
-          {/* Animated preview — clips to one frame at a time.
-              Frames are always square, so at 192px display height each frame is 192px wide.
-              Width is set explicitly (not 'auto') to avoid shrink-to-fit on absolute elements. */}
           <div>
-            <p className="text-xs text-white/30 mb-2 text-center">Preview — {selectedDir}</p>
+            <p className="text-xs text-white/30 mb-2 text-center">
+              {isRefined ? 'Refined' : 'Preview'} — {selectedDir}
+            </p>
             <div
               style={{
                 width: 192,
@@ -112,7 +121,9 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
 
         {/* Full strip for selected direction */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
-          <p className="text-xs text-white/30 mb-2">Full strip — {selectedDir} ({frameCount} frames)</p>
+          <p className="text-xs text-white/30 mb-2">
+            {isRefined ? 'Refined strip' : 'Full strip'} — {selectedDir} ({frameCount} frames)
+          </p>
           <img
             src={selectedUrl}
             alt={`Sprite sheet ${selectedDir}`}
@@ -121,6 +132,19 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
           />
         </div>
 
+        {/* Original strip comparison — only shown after refinement */}
+        {isRefined && (
+          <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
+            <p className="text-xs text-white/30 mb-2">Original — {selectedDir}</p>
+            <img
+              src={animationUrls[selectedDir]}
+              alt={`Original sprite sheet ${selectedDir}`}
+              style={{ imageRendering: 'pixelated', height: '64px', width: 'auto', display: 'block' }}
+              className="rounded opacity-70"
+            />
+          </div>
+        )}
+
         {/* Download one per direction */}
         <div>
           <p className="text-xs text-white/30 mb-2">Download per direction</p>
@@ -128,8 +152,8 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
             {DIRECTIONS.map(dir => (
               <a
                 key={dir}
-                href={animationUrls[dir]}
-                download={`${spriteName}_${dir}.png`}
+                href={activeUrls[dir]}
+                download={`${spriteName}_${dir}${isRefined ? '_refined' : ''}.png`}
                 className="text-xs bg-white/5 hover:bg-white/10 border border-white/20 text-white/60 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
               >
                 ↓ {dir}
@@ -139,22 +163,24 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, f
         </div>
 
         {/* Merged master sheet */}
-        {mergedUrl && (
+        {activeMergedUrl && (
           <div className="mt-4 pt-4 border-t border-white/10">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-white/50 uppercase tracking-wider">Master sheet — all directions</p>
+              <p className="text-xs text-white/50 uppercase tracking-wider">
+                Master sheet{isRefined && refinedMergedUrl ? ' — Refined' : ' — all directions'}
+              </p>
               <a
-                href={mergedUrl}
-                download={`${spriteName}_all.png`}
+                href={activeMergedUrl}
+                download={`${spriteName}_all${isRefined && refinedMergedUrl ? '_refined' : ''}.png`}
                 className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
               >
                 ↓ Download master sheet
               </a>
             </div>
             <div className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
-              <p className="text-xs text-white/20 mb-2">8 rows (N → NW) × {frameCount} frames — {spriteName}_all.png</p>
+              <p className="text-xs text-white/20 mb-2">8 rows (N → NW) × {frameCount} frames</p>
               <img
-                src={mergedUrl}
+                src={activeMergedUrl}
                 alt="Master sprite sheet"
                 style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block' }}
                 className="rounded"
