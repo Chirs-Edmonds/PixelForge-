@@ -102,7 +102,7 @@ assets/                 Uploaded .glb files
 - **Engine:** BLENDER_EEVEE_NEXT (Blender 5.x)
 - **Background:** transparent RGBA PNG
 - **Direction order in sheet:** N, NE, E, SE, S, SW, W, NW (left to right)
-- **North convention:** Blender +Y = North
+- **North convention:** N camera sits at +Y (north of object, looking south); azimuth 0° = +Y orbit position
 - **Downscale:** LANCZOS for clean pixel art edges
 - **Frontend proxy:** all React fetch calls use `/api/*` → proxied to FastAPI port 8000
   (rewrite strips /api prefix: `/api/render` → `/render`, `/api/output/...` → `/output/...`)

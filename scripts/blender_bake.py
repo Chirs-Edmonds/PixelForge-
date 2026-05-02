@@ -148,8 +148,39 @@ def load_or_generate_mesh(args, scene):
     for obj in mesh_objects:
         eval_obj = obj.evaluated_get(depsgraph)
         mat = eval_obj.matrix_world
-        for v in eval_obj.data.vertices:
-            all_world_verts.append(mat @ v.co)
+
+        # 1. Evaluated mesh vertices (handles modifiers / geometry nodes)
+        verts = list(eval_obj.data.vertices)
+
+        # 2. to_mesh() — catches cases where .data.vertices is empty but the
+        #    evaluated object can still produce geometry (e.g. animated curves)
+        if not verts:
+            try:
+                tmp = eval_obj.to_mesh()
+                if tmp and tmp.vertices:
+                    verts = list(tmp.vertices)
+                eval_obj.to_mesh_clear()
+            except Exception:
+                pass
+
+        # 3. Rest-pose data — safe fallback for un-deformed meshes
+        if not verts:
+            verts = list(obj.data.vertices)
+
+        if verts:
+            for v in verts:
+                all_world_verts.append(mat @ v.co)
+        else:
+            # 4. Last resort: 8 corners of the object's local bounding box
+            for corner in obj.bound_box:
+                all_world_verts.append(obj.matrix_world @ mathutils.Vector(corner))
+
+    if not all_world_verts:
+        raise RuntimeError(
+            "Could not compute bounding box: every mesh object returned empty geometry. "
+            "Check that the .blend file contains mesh objects with real vertex data "
+            "(not just empties, library overrides, or purely geometry-node outputs)."
+        )
 
     xs = [v.x for v in all_world_verts]
     ys = [v.y for v in all_world_verts]
@@ -242,8 +273,8 @@ def compute_global_ortho_scale(cam_ob, center, corners):
 
     for _, az_deg in DIRECTIONS:
         az_rad = math.radians(az_deg)
-        cx = center.x + CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
-        cy = center.y - CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
+        cx = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
+        cy = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
         cz = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
         cam_pos  = mathutils.Vector((cx, cy, cz))
         look_vec = (center - cam_pos).normalized()
@@ -274,7 +305,7 @@ def compute_global_ortho_scale(cam_ob, center, corners):
 # ---------------------------------------------------------------------------
 
 # Direction name → azimuth in degrees.
-# Azimuth 0° = North = camera positioned at -Y looking toward +Y (Blender convention).
+# Azimuth 0° = North = camera positioned at +Y looking toward -Y (north of object).
 # Increases clockwise when viewed from above (game-standard CW from North).
 DIRECTIONS = [
     ("N",   0),
@@ -301,8 +332,8 @@ def render_all_directions(scene, cam_ob, center, outdir, frame_start, frame_end,
         for direction_name, azimuth_deg in DIRECTIONS:
             az_rad = math.radians(azimuth_deg)
 
-            x = center.x + CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
-            y = center.y - CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
+            x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
+            y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
             z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
 
             cam_ob.location = (x, y, z)
@@ -328,8 +359,8 @@ def render_all_directions(scene, cam_ob, center, outdir, frame_start, frame_end,
         for direction_name, azimuth_deg in DIRECTIONS:
             az_rad = math.radians(azimuth_deg)
 
-            x = center.x + CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
-            y = center.y - CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
+            x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
+            y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
             z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
 
             cam_ob.location = (x, y, z)
