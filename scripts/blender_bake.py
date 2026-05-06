@@ -8,15 +8,18 @@ Usage (via Blender CLI):
         --outdir output/frames \
         --size 256 \
         [--mesh path/to/mesh.glb|.blend|.fbx|.obj] \
-        [--frame-start 1 --frame-end 24]
+        [--frame-start 1 --frame-end 24] \
+        [--hide-collections UpperBody,LowerBody]
 
 Arguments (after the "--" separator):
-    --outdir       PATH  Directory to write PNG frames into (required)
-    --size         INT   Render resolution per frame, square (default: 256)
-    --mesh         PATH  Path to a mesh file to import (.glb, .gltf, .blend, .fbx, .obj).
-                         If omitted, a humanoid test primitive is generated automatically.
-    --frame-start  INT   First frame to render (default: scene frame_start)
-    --frame-end    INT   Last frame to render (default: scene frame_end)
+    --outdir            PATH  Directory to write PNG frames into (required)
+    --size              INT   Render resolution per frame, square (default: 256)
+    --mesh              PATH  Path to a mesh file to import (.glb, .gltf, .blend, .fbx, .obj).
+                              If omitted, a humanoid test primitive is generated automatically.
+    --frame-start       INT   First frame to render (default: scene frame_start)
+    --frame-end         INT   Last frame to render (default: scene frame_end)
+    --hide-collections  STR   Comma-separated Blender collection names to hide before rendering.
+                              Use for split-body renders: e.g. "LowerBody" renders upper only.
 
 Output (single-frame mode, frame-start == frame-end):
     {outdir}/N.png, NE.png, E.png, SE.png, S.png, SW.png, W.png, NW.png
@@ -55,6 +58,8 @@ def parse_args():
                         help="First frame to render. Default: scene frame_start.")
     parser.add_argument("--frame-end", type=int, default=None,
                         help="Last frame to render. Default: scene frame_end.")
+    parser.add_argument("--hide-collections", type=str, default="",
+                        help="Comma-separated Blender collection names to hide before rendering.")
     return parser.parse_args(argv)
 
 
@@ -117,9 +122,26 @@ def load_or_generate_mesh(args, scene):
             bpy.ops.import_scene.gltf(filepath=mesh_path)
         elif ext == ".blend":
             with bpy.data.libraries.load(mesh_path) as (data_from, data_to):
-                data_to.objects = list(data_from.objects)
+                data_to.objects    = list(data_from.objects)
+                data_to.collections = list(data_from.collections)
+
+            # Link collection hierarchy so --hide-collections can find named collections.
+            # Only link top-level collections (those not nested inside another imported one).
+            nested = set()
+            for col in data_to.collections:
+                if col is not None:
+                    for child in col.children:
+                        nested.add(child)
+            for col in data_to.collections:
+                if col is not None and col not in nested:
+                    try:
+                        scene.collection.children.link(col)
+                    except Exception as e:
+                        print(f"[PixelForge] Warning: could not link collection '{col.name}': {e}")
+
+            # Safety net: link any objects that ended up in no collection
             for obj in data_to.objects:
-                if obj is not None:
+                if obj is not None and not obj.users_collection:
                     scene.collection.objects.link(obj)
         elif ext == ".fbx":
             bpy.ops.import_scene.fbx(filepath=mesh_path)
@@ -392,6 +414,20 @@ def main():
     scene = setup_scene(args.size)
     add_lighting(scene)
     bbox_min, bbox_max, center = load_or_generate_mesh(args, scene)
+
+    if args.hide_collections:
+        for col_name in args.hide_collections.split(","):
+            col_name = col_name.strip()
+            if not col_name:
+                continue
+            col = bpy.data.collections.get(col_name)
+            if col:
+                col.hide_render = True
+                col.hide_viewport = True
+                print(f"[PixelForge] Hidden collection: {col_name!r}")
+            else:
+                print(f"[PixelForge] Warning: collection {col_name!r} not found — skipped.")
+
     cam_ob = setup_camera(scene)
     corners = get_bbox_corners(bbox_min, bbox_max)
     compute_global_ortho_scale(cam_ob, center, corners)

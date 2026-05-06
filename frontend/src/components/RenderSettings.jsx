@@ -11,6 +11,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [outputName, setOutputName] = useState('')
   const [outputDir, setOutputDir] = useState('')
   const [mergeSheets, setMergeSheets] = useState(false)
+  const [bodyPart, setBodyPart] = useState('full')
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
 
@@ -43,6 +44,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
         name: outputName.trim() || 'sprite_sheet',
         output_dir: outputDir.trim() || null,
         merge_sheets: isAnimation && mergeSheets,
+        body_part: bodyPart,
       }
       if (isAnimation) {
         body.frame_start = frameStart
@@ -56,7 +58,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`)
-      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, name: outputName.trim() || 'sprite_sheet', mergeSheets: isAnimation && mergeSheets })
+      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, name: outputName.trim() || 'sprite_sheet', mergeSheets: isAnimation && mergeSheets, bodyPart })
     } catch (e) {
       // Network errors (backend not running) show as "Failed to fetch"
       const msg = e.message === 'Failed to fetch'
@@ -149,6 +151,37 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
               <p className="text-xs text-white/30 pb-2">{frameCount} frames × 8 directions</p>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Body part */}
+      <div className="mb-4">
+        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Body part</p>
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { value: 'full',  label: 'Full body' },
+            { value: 'upper', label: 'Upper only' },
+            { value: 'lower', label: 'Lower only' },
+            { value: 'split', label: 'Split (both)' },
+          ].map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setBodyPart(value)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                bodyPart === value
+                  ? 'bg-violet-600 border-violet-500 text-white'
+                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {bodyPart !== 'full' && (
+          <p className="text-xs text-white/30 mt-2">
+            Requires <code className="text-white/40">UpperBody</code> and <code className="text-white/40">LowerBody</code> collections in the .blend file.
+            {bodyPart === 'split' && ' Runs two passes — takes 2× render time.'}
+          </p>
         )}
       </div>
 

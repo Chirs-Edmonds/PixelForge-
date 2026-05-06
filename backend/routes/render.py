@@ -71,6 +71,7 @@ class RenderRequest(BaseModel):
     name: str = "sprite_sheet"        # output filename prefix (sanitized server-side)
     output_dir: str | None = None     # optional extra copy destination (e.g. game asset repo)
     merge_sheets: bool = False        # animation only: also produce a combined 8-row master sheet
+    body_part: str = "full"           # "full" | "upper" | "lower" | "split"
 
 
 @router.post("/render")
@@ -95,11 +96,15 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
         if not out_dir.is_dir():
             raise HTTPException(400, f"output_dir does not exist: {req.output_dir}")
 
+    valid_body_parts = {"full", "upper", "lower", "split"}
+    if req.body_part not in valid_body_parts:
+        raise HTTPException(400, f"body_part must be one of {sorted(valid_body_parts)}.")
+
     job_id = str(uuid.uuid4())
     create_job(job_id)
     background_tasks.add_task(
         _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
-        safe_name, req.output_dir, req.merge_sheets
+        safe_name, req.output_dir, req.merge_sheets, req.body_part
     )
     return {"job_id": job_id}
 
@@ -149,15 +154,58 @@ def _run_render(
     name: str = "sprite_sheet",
     output_dir: str | None = None,
     merge_sheets: bool = False,
+    body_part: str = "full",
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
         update_job(job_id, status="error", step="error",
                    progress_msg="Internal pipeline error — see backend terminal.",
                    error=tb[-2000:])
+
+
+def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections=""):
+    cmd = [
+        str(BLENDER_EXE),
+        "--background", "--factory-startup",
+        "--python", str(BAKE_SCRIPT),
+        "--",
+        "--outdir", str(OUTPUT_FRAMES),
+        "--size",   str(render_size),
+    ]
+    if mesh_path:
+        cmd += ["--mesh", str((ASSETS_DIR / mesh_path).resolve())]
+    if frame_start is not None:
+        cmd += ["--frame-start", str(frame_start), "--frame-end", str(frame_end)]
+    if hide_collections:
+        cmd += ["--hide-collections", hide_collections]
+    return cmd
+
+
+def _build_assemble_cmd(sprite_size, is_animation, name, merge_sheets=False):
+    out_sheet = PROJECT_ROOT / "output" / f"{name}.png"
+    if is_animation:
+        OUTPUT_SHEETS.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            str(PYTHON_EXE), str(ASSEMBLE_SCRIPT),
+            "--framesdir", str(OUTPUT_FRAMES),
+            "--outdir",    str(OUTPUT_SHEETS),
+            "--size",      str(sprite_size),
+            "--animate",
+            "--prefix",    name,
+        ]
+        if merge_sheets:
+            cmd.append("--merge")
+    else:
+        cmd = [
+            str(PYTHON_EXE), str(ASSEMBLE_SCRIPT),
+            "--framesdir", str(OUTPUT_FRAMES),
+            "--outfile",   str(out_sheet),
+            "--size",      str(sprite_size),
+        ]
+    return cmd
 
 
 def _run_render_inner(
@@ -169,108 +217,92 @@ def _run_render_inner(
     name: str = "sprite_sheet",
     output_dir: str | None = None,
     merge_sheets: bool = False,
+    body_part: str = "full",
 ) -> None:
     render_size = sprite_size
-    out_sheet = PROJECT_ROOT / "output" / f"{name}.png"
     is_animation = (
         frame_start is not None
         and frame_end is not None
         and frame_end > frame_start
     )
 
-    if is_animation:
-        num_frames = frame_end - frame_start + 1
-        progress = f"Step 1/2: Blender rendering {num_frames} frames × 8 directions at {render_size}px..."
-    else:
-        progress = f"Step 1/2: Blender rendering 8 directions at {render_size}px..."
+    # Determine render passes: [(hide_collections, output_name_suffix), ...]
+    if body_part == "split":
+        passes = [("LowerBody", f"{name}_upper"), ("UpperBody", f"{name}_legs")]
+    elif body_part == "upper":
+        passes = [("LowerBody", name)]
+    elif body_part == "lower":
+        passes = [("UpperBody", name)]
+    else:  # "full"
+        passes = [("", name)]
 
-    update_job(job_id, status="running", step="blender", progress_msg=progress)
+    total_passes = len(passes)
+    out_sheet = PROJECT_ROOT / "output" / f"{name}.png"
 
-    # Step 1: Blender
-    cmd = [
-        str(BLENDER_EXE),
-        "--background", "--factory-startup",
-        "--python", str(BAKE_SCRIPT),
-        "--",
-        "--outdir", str(OUTPUT_FRAMES),
-        "--size",   str(render_size),
-    ]
-    if mesh_path:
-        cmd += ["--mesh", str((ASSETS_DIR / mesh_path).resolve())]
-    if is_animation:
-        cmd += ["--frame-start", str(frame_start), "--frame-end", str(frame_end)]
-
-    # Clear stale state from previous runs.
-    _clear_dir(OUTPUT_FRAMES)
-    OUTPUT_FRAMES.mkdir(parents=True, exist_ok=True)
+    LOG_FILE.write_text("", encoding="utf-8")  # clear log for this render
     if is_animation:
         _clear_dir(OUTPUT_SHEETS)
-    sentinel = OUTPUT_FRAMES / ".render_done"
-    LOG_FILE.write_text("", encoding="utf-8")  # clear log for this render
 
-    returncode, output = _run_subprocess(cmd, "blender")
+    for pass_idx, (hide_collections, pass_name) in enumerate(passes):
+        pass_label = f" (pass {pass_idx + 1}/{total_passes})" if total_passes > 1 else ""
+        pass_out_sheet = PROJECT_ROOT / "output" / f"{pass_name}.png"
 
-    # Blender exits with code 0 even when its embedded Python script crashes.
-    # blender_bake.py writes a sentinel file only on successful completion.
-    blender_ok = sentinel.exists()
+        # Step 1: Blender
+        if is_animation:
+            num_frames = frame_end - frame_start + 1
+            progress = f"Blender: {num_frames} frames × 8 dirs at {render_size}px{pass_label}..."
+        else:
+            progress = f"Blender: rendering 8 directions at {render_size}px{pass_label}..."
+        update_job(job_id, status="running", step="blender", progress_msg=progress)
 
-    if returncode != 0 or not blender_ok:
-        error_msg = output.strip()[-2000:] or "Blender produced no output. Check the backend terminal."
-        update_job(job_id, status="error", step="blender",
-                   progress_msg="Blender render failed — see error details.",
-                   error=error_msg)
-        return
+        _clear_dir(OUTPUT_FRAMES)
+        OUTPUT_FRAMES.mkdir(parents=True, exist_ok=True)
+        sentinel = OUTPUT_FRAMES / ".render_done"
 
-    # Step 2: Assemble
-    if is_animation:
+        blender_cmd = _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections)
+        returncode, output = _run_subprocess(blender_cmd, f"blender{pass_label}")
+
+        blender_ok = sentinel.exists()
+        if returncode != 0 or not blender_ok:
+            error_msg = output.strip()[-2000:] or "Blender produced no output. Check the backend terminal."
+            update_job(job_id, status="error", step="blender",
+                       progress_msg="Blender render failed — see error details.",
+                       error=error_msg)
+            return
+
+        # Step 2: Assemble
         update_job(job_id, step="assemble",
-                   progress_msg=f"Step 2/2: Assembling {sprite_size}px animation sheets (8 directions)...")
-        OUTPUT_SHEETS.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            str(PYTHON_EXE),
-            str(ASSEMBLE_SCRIPT),
-            "--framesdir", str(OUTPUT_FRAMES),
-            "--outdir",    str(OUTPUT_SHEETS),
-            "--size",      str(sprite_size),
-            "--animate",
-            "--prefix",    name,
-        ]
-        if merge_sheets:
-            cmd.append("--merge")
-    else:
-        update_job(job_id, step="assemble",
-                   progress_msg=f"Step 2/2: Assembling {sprite_size}px sprite sheet...")
-        cmd = [
-            str(PYTHON_EXE),
-            str(ASSEMBLE_SCRIPT),
-            "--framesdir", str(OUTPUT_FRAMES),
-            "--outfile",   str(out_sheet),
-            "--size",      str(sprite_size),
-        ]
-
-    returncode, output = _run_subprocess(cmd, "assemble")
-    if returncode != 0:
-        error_msg = output.strip()[-2000:] or "Assembly script exited with an error. Check the backend terminal."
-        update_job(job_id, status="error", step="assemble",
-                   progress_msg="Sprite sheet assembly failed — see error details.",
-                   error=error_msg)
-        return
+                   progress_msg=f"Assembling {sprite_size}px sheets{pass_label}...")
+        assemble_cmd = _build_assemble_cmd(sprite_size, is_animation, pass_name, merge_sheets)
+        returncode, output = _run_subprocess(assemble_cmd, f"assemble{pass_label}")
+        if returncode != 0:
+            error_msg = output.strip()[-2000:] or "Assembly script exited with an error. Check the backend terminal."
+            update_job(job_id, status="error", step="assemble",
+                       progress_msg="Sprite sheet assembly failed — see error details.",
+                       error=error_msg)
+            return
 
     # Copy final outputs to user-specified directory if requested
     if output_dir:
         dest = Path(output_dir)
         dest.mkdir(parents=True, exist_ok=True)
         if is_animation:
-            for f in OUTPUT_SHEETS.glob(f"{name}_*.png"):
-                shutil.copy2(f, dest / f.name)
+            for _, pass_name in passes:
+                for f in OUTPUT_SHEETS.glob(f"{pass_name}_*.png"):
+                    shutil.copy2(f, dest / f.name)
         else:
-            shutil.copy2(out_sheet, dest / out_sheet.name)
+            for _, pass_name in passes:
+                src = PROJECT_ROOT / "output" / f"{pass_name}.png"
+                if src.exists():
+                    shutil.copy2(src, dest / src.name)
 
-    merged_url = f"/api/output/sheets/{name}_all.png" if (is_animation and merge_sheets) else None
+    # Build result metadata
+    final_pass_name = passes[-1][1]
+    merged_url = f"/api/output/sheets/{final_pass_name}_all.png" if (is_animation and merge_sheets) else None
 
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",
-               output=f"sheets/{name}" if is_animation else f"{name}.png",
+               output=f"sheets/{final_pass_name}" if is_animation else f"{final_pass_name}.png",
                merged_url=merged_url)
 
 

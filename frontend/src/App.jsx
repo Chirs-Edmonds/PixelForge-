@@ -19,6 +19,7 @@ export default function App() {
   const [mergedUrl, setMergedUrl]                     = useState(null)
   const [refinedAnimationUrls, setRefinedAnimationUrls] = useState(null)
   const [refinedMergedUrl, setRefinedMergedUrl]         = useState(null)
+  const [splitSheets, setSplitSheets]                 = useState(null) // split-body mode only
 
   // Use a ref to track animConfig inside callbacks without stale closure issues
   const animConfigRef = useRef(null)
@@ -31,22 +32,42 @@ export default function App() {
     setIsRendering(false)
 
     const config = animConfigRef.current
-    const name = config?.name || 'sprite_sheet'
-    if (config?.isAnimation) {
-      const ts = Date.now()
+    const name   = config?.name || 'sprite_sheet'
+    const ts     = Date.now()
+
+    const buildAnimUrls = prefix => {
       const urls = {}
-      DIRECTIONS.forEach(d => {
-        urls[d] = `/api/output/sheets/${name}_${d}.png?t=${ts}`
-      })
-      setAnimationUrls(urls)
+      DIRECTIONS.forEach(d => { urls[d] = `/api/output/sheets/${prefix}_${d}.png?t=${ts}` })
+      return urls
+    }
+
+    if (config?.bodyPart === 'split') {
+      // Two passes were rendered — build separate URL sets for upper and lower
+      setSplitSheets([
+        {
+          label: 'Upper body',
+          spriteName: `${name}_upper`,
+          animationUrls:  config.isAnimation ? buildAnimUrls(`${name}_upper`) : null,
+          spriteSheetUrl: config.isAnimation ? null : `/api/output/${name}_upper.png?t=${ts}`,
+        },
+        {
+          label: 'Lower body',
+          spriteName: `${name}_legs`,
+          animationUrls:  config.isAnimation ? buildAnimUrls(`${name}_legs`) : null,
+          spriteSheetUrl: config.isAnimation ? null : `/api/output/${name}_legs.png?t=${ts}`,
+        },
+      ])
+      setAnimationUrls(null)
       setSpriteSheetUrl(null)
-      if (jobData?.merged_url) {
-        setMergedUrl(`${jobData.merged_url}?t=${ts}`)
-      } else {
-        setMergedUrl(null)
-      }
+      setMergedUrl(null)
+    } else if (config?.isAnimation) {
+      setSplitSheets(null)
+      setAnimationUrls(buildAnimUrls(name))
+      setSpriteSheetUrl(null)
+      setMergedUrl(jobData?.merged_url ? `${jobData.merged_url}?t=${ts}` : null)
     } else {
-      setSpriteSheetUrl(`/api/output/${name}.png?t=${Date.now()}`)
+      setSplitSheets(null)
+      setSpriteSheetUrl(`/api/output/${name}.png?t=${ts}`)
       setAnimationUrls(null)
       setMergedUrl(null)
     }
@@ -82,6 +103,7 @@ export default function App() {
     setMergedUrl(null)
     setRefinedAnimationUrls(null)
     setRefinedMergedUrl(null)
+    setSplitSheets(null)
     setRenderJobId(null)
   }
 
@@ -97,6 +119,7 @@ export default function App() {
     setMergedUrl(null)
     setRefinedAnimationUrls(null)
     setRefinedMergedUrl(null)
+    setSplitSheets(null)
     setRenderJobId(jobId)
   }
 
@@ -148,6 +171,7 @@ export default function App() {
           spriteName={animConfig?.name || 'sprite_sheet'}
           mergedUrl={mergedUrl}
           refinedMergedUrl={refinedMergedUrl}
+          splitSheets={splitSheets}
         />
       </main>
     </div>

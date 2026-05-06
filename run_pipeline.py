@@ -30,6 +30,7 @@ Common sizes: 16, 32, 64 (default), 128, 256
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +65,13 @@ def parse_args():
                         help="Phase 1: Last animation frame. Requires --frame-start.")
     parser.add_argument("--name", type=str, default="sprite_sheet",
                         help="Output filename prefix. Default: sprite_sheet.")
+    parser.add_argument("--split-body", action="store_true",
+                        help="Phase 1: Run two render passes — upper body (LowerBody hidden) "
+                             "and legs (UpperBody hidden). Requires collections named 'UpperBody' "
+                             "and 'LowerBody' in the .blend file.")
+    parser.add_argument("--hide-collections", type=str, default="",
+                        help="Phase 1: Comma-separated Blender collection names to hide "
+                             "(e.g. 'LowerBody'). Use --split-body for automatic two-pass.")
 
     # Phase 2
     parser.add_argument("--upscale", action="store_true",
@@ -108,7 +116,7 @@ def run_tripo3d(prompt, image, outfile):
     return outfile
 
 
-def run_blender(mesh_path, render_size, frame_start=None, frame_end=None):
+def run_blender(mesh_path, render_size, frame_start=None, frame_end=None, hide_collections=""):
     cmd = [
         str(BLENDER_EXE),
         "--background",
@@ -122,6 +130,8 @@ def run_blender(mesh_path, render_size, frame_start=None, frame_end=None):
         cmd += ["--mesh", str(Path(mesh_path).resolve())]
     if frame_start is not None:
         cmd += ["--frame-start", str(frame_start), "--frame-end", str(frame_end)]
+    if hide_collections:
+        cmd += ["--hide-collections", hide_collections]
 
     print(f"\n[PixelForge] Phase 1 Step 1/2: Blender headless render ({render_size}px)...")
     result = subprocess.run(cmd, capture_output=False)
@@ -226,24 +236,58 @@ def main():
         mesh_path = str(generated)
 
     # Phase 1 — render + assemble
-    run_blender(mesh_path, render_size, args.frame_start, args.frame_end)
-    run_assemble(sprite_size, animate=is_animation, outfile=output_sheet, outdir=output_sheets, name=args.name)
+    if args.split_body:
+        # Two-pass render: upper body (legs hidden), then legs (upper hidden).
+        print(f"\n[PixelForge] Split-body mode: running 2 render passes.")
 
-    # Phase 2 — refinement (opt-in, single-frame only)
-    if run_phase2:
+        upper_name = f"{args.name}_upper"
+        legs_name  = f"{args.name}_legs"
+
+        # Pass 1 — upper body
+        print(f"\n[PixelForge] Pass 1/2: upper body (hiding LowerBody collection)...")
+        run_blender(mesh_path, render_size, args.frame_start, args.frame_end, "LowerBody")
+        run_assemble(sprite_size, animate=is_animation,
+                     outfile=PROJECT_ROOT / "output" / f"{upper_name}.png",
+                     outdir=output_sheets, name=upper_name)
+
+        # Clear frames before second pass
+        if OUTPUT_FRAMES.exists():
+            shutil.rmtree(OUTPUT_FRAMES)
+
+        # Pass 2 — legs
+        print(f"\n[PixelForge] Pass 2/2: legs (hiding UpperBody collection)...")
+        run_blender(mesh_path, render_size, args.frame_start, args.frame_end, "UpperBody")
+        run_assemble(sprite_size, animate=is_animation,
+                     outfile=PROJECT_ROOT / "output" / f"{legs_name}.png",
+                     outdir=output_sheets, name=legs_name)
+
+        print(f"\n[PixelForge] Done! Split-body sheets:")
         if is_animation:
-            print(f"\n[PixelForge] Phase 2: Skipped in animation mode (refine each sheet individually with refine.py).")
+            for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
+                print(f"[PixelForge]   {d:2s} upper : {output_sheets / f'{upper_name}_{d}.png'}")
+                print(f"[PixelForge]   {d:2s} legs  : {output_sheets / f'{legs_name}_{d}.png'}")
         else:
-            run_refine(args.upscale, args.colors, args.dither, infile=output_sheet, outfile=output_refined)
-
-    print(f"\n[PixelForge] Done!")
-    if is_animation:
-        for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
-            print(f"[PixelForge]   {d:2s} : {output_sheets / f'{args.name}_{d}.png'}")
+            print(f"[PixelForge]   Upper : {PROJECT_ROOT / 'output' / f'{upper_name}.png'}")
+            print(f"[PixelForge]   Legs  : {PROJECT_ROOT / 'output' / f'{legs_name}.png'}")
     else:
-        print(f"[PixelForge]   Sprite sheet : {output_sheet}")
+        run_blender(mesh_path, render_size, args.frame_start, args.frame_end, args.hide_collections)
+        run_assemble(sprite_size, animate=is_animation, outfile=output_sheet, outdir=output_sheets, name=args.name)
+
+        # Phase 2 — refinement (opt-in, single-frame only)
         if run_phase2:
-            print(f"[PixelForge]   Refined      : {output_refined}")
+            if is_animation:
+                print(f"\n[PixelForge] Phase 2: Skipped in animation mode (refine each sheet individually with refine.py).")
+            else:
+                run_refine(args.upscale, args.colors, args.dither, infile=output_sheet, outfile=output_refined)
+
+        print(f"\n[PixelForge] Done!")
+        if is_animation:
+            for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
+                print(f"[PixelForge]   {d:2s} : {output_sheets / f'{args.name}_{d}.png'}")
+        else:
+            print(f"[PixelForge]   Sprite sheet : {output_sheet}")
+            if run_phase2:
+                print(f"[PixelForge]   Refined      : {output_refined}")
 
 
 if __name__ == "__main__":

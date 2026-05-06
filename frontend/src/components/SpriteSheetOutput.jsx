@@ -2,7 +2,59 @@ import { useState, useEffect, useRef } from 'react'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, refinedAnimationUrls, frameCount, spriteSize, spriteName = 'sprite_sheet', mergedUrl, refinedMergedUrl }) {
+// ── Split-body tab wrapper ───────────────────────────────────────────────────
+function SplitSheetsOutput({ splitSheets, frameCount, spriteSize }) {
+  const [activeTab, setActiveTab] = useState(0)
+  const sheet = splitSheets[activeTab]
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white">4. Output</h2>
+        <span className="text-xs text-white/40">Split body — 2 sheets</span>
+      </div>
+
+      {/* Tab buttons */}
+      <div className="flex gap-2 mb-4">
+        {splitSheets.map((s, i) => (
+          <button
+            key={s.label}
+            onClick={() => setActiveTab(i)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              activeTab === i
+                ? 'bg-violet-600 border-violet-500 text-white'
+                : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Render active sheet — _noChrome suppresses the outer card */}
+      <SpriteSheetOutput
+        key={sheet.label}
+        spriteSheetUrl={sheet.spriteSheetUrl}
+        animationUrls={sheet.animationUrls}
+        frameCount={frameCount}
+        spriteSize={spriteSize}
+        spriteName={sheet.spriteName}
+        _noChrome
+      />
+    </div>
+  )
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
+export function SpriteSheetOutput({
+  spriteSheetUrl, refinedUrl,
+  animationUrls, refinedAnimationUrls,
+  frameCount, spriteSize,
+  spriteName = 'sprite_sheet',
+  mergedUrl, refinedMergedUrl,
+  splitSheets,
+  _noChrome = false,
+}) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
@@ -33,29 +85,22 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
     setCurrentFrame(0)
   }, [selectedDir])
 
-  if (!spriteSheetUrl && !refinedUrl && !animationUrls) return null
+  if (!spriteSheetUrl && !refinedUrl && !animationUrls && !splitSheets) return null
 
-  // ── Animation mode ──────────────────────────────────────────────────────────
+  // ── Split-body mode ──────────────────────────────────────────────────────────
+  if (splitSheets) {
+    return <SplitSheetsOutput splitSheets={splitSheets} frameCount={frameCount} spriteSize={spriteSize} />
+  }
+
+  // ── Animation mode ───────────────────────────────────────────────────────────
   if (animationUrls) {
-    const isRefined = !!refinedAnimationUrls
-    const activeUrls = refinedAnimationUrls || animationUrls
-    const selectedUrl = activeUrls[selectedDir]
+    const isRefined     = !!refinedAnimationUrls
+    const activeUrls    = refinedAnimationUrls || animationUrls
+    const selectedUrl   = activeUrls[selectedDir]
     const activeMergedUrl = refinedMergedUrl || mergedUrl
 
-    return (
-      <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-white">4. Output</h2>
-            {isRefined && (
-              <span className="text-xs bg-violet-600/30 border border-violet-500/40 text-violet-300 px-2 py-0.5 rounded-full">
-                Refined
-              </span>
-            )}
-          </div>
-          <span className="text-xs text-white/40">{frameCount} frames × 8 directions</span>
-        </div>
-
+    const inner = (
+      <>
         {/* Direction selector */}
         <div className="flex gap-1.5 mb-4 flex-wrap">
           {DIRECTIONS.map(dir => (
@@ -73,7 +118,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           ))}
         </div>
 
-        {/* Preview + controls */}
+        {/* Preview + playback controls */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 flex gap-6 items-center flex-wrap">
           <div>
             <p className="text-xs text-white/30 mb-2 text-center">
@@ -96,8 +141,6 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
               Frame {currentFrame + 1} / {frameCount}
             </p>
           </div>
-
-          {/* Playback controls */}
           <div className="flex flex-col gap-3">
             <button
               onClick={() => setIsPlaying(p => !p)}
@@ -108,10 +151,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
             <div>
               <p className="text-xs text-white/40 mb-1">Speed: {fps} fps</p>
               <input
-                type="range"
-                min={1}
-                max={24}
-                value={fps}
+                type="range" min={1} max={24} value={fps}
                 onChange={e => setFps(Number(e.target.value))}
                 className="w-28 accent-violet-500"
               />
@@ -119,7 +159,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           </div>
         </div>
 
-        {/* Full strip for selected direction */}
+        {/* Full strip */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
           <p className="text-xs text-white/30 mb-2">
             {isRefined ? 'Refined strip' : 'Full strip'} — {selectedDir} ({frameCount} frames)
@@ -132,7 +172,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           />
         </div>
 
-        {/* Original strip comparison — only shown after refinement */}
+        {/* Original strip comparison — only after refinement */}
         {isRefined && (
           <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
             <p className="text-xs text-white/30 mb-2">Original — {selectedDir}</p>
@@ -145,7 +185,7 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           </div>
         )}
 
-        {/* Download one per direction */}
+        {/* Per-direction downloads */}
         <div>
           <p className="text-xs text-white/30 mb-2">Download per direction</p>
           <div className="flex gap-2 flex-wrap">
@@ -193,6 +233,25 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
             </div>
           </div>
         )}
+      </>
+    )
+
+    if (_noChrome) return <div>{inner}</div>
+
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">4. Output</h2>
+            {isRefined && (
+              <span className="text-xs bg-violet-600/30 border border-violet-500/40 text-violet-300 px-2 py-0.5 rounded-full">
+                Refined
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-white/40">{frameCount} frames × 8 directions</span>
+        </div>
+        {inner}
       </div>
     )
   }
@@ -201,19 +260,8 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
   const activeUrl = refinedUrl || spriteSheetUrl
   const label     = refinedUrl ? 'Refined' : 'Sprite Sheet'
 
-  return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">4. Output</h2>
-        <a
-          href={activeUrl}
-          download={refinedUrl ? `${spriteName}_refined.png` : `${spriteName}.png`}
-          className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-        >
-          Download PNG
-        </a>
-      </div>
-
+  const singleInner = (
+    <>
       <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
         <div style={{ width: 'max-content', minWidth: '100%' }}>
           <img
@@ -229,11 +277,9 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           </div>
         </div>
       </div>
-
       <p className="text-xs text-white/40 text-center">
         {label} — 8 directions, left to right: {DIRECTIONS.join(', ')}
       </p>
-
       {refinedUrl && spriteSheetUrl && (
         <div className="mt-4 pt-4 border-t border-white/10">
           <p className="text-xs text-white/40 mb-2">Original (pre-refinement):</p>
@@ -254,6 +300,24 @@ export function SpriteSheetOutput({ spriteSheetUrl, refinedUrl, animationUrls, r
           </a>
         </div>
       )}
+    </>
+  )
+
+  if (_noChrome) return <div>{singleInner}</div>
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white">4. Output</h2>
+        <a
+          href={activeUrl}
+          download={refinedUrl ? `${spriteName}_refined.png` : `${spriteName}.png`}
+          className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+        >
+          Download PNG
+        </a>
+      </div>
+      {singleInner}
     </div>
   )
 }
