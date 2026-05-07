@@ -9,6 +9,7 @@ Refine logic runs in-process via Pillow (no subprocess). Pillow must be installe
 the same Python environment as uvicorn: py -3.12 -m pip install Pillow
 """
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -24,12 +25,11 @@ except ImportError:
 
 router = APIRouter()
 
-PROJECT_ROOT   = Path(__file__).parent.parent.parent
-OUTPUT_SHEET   = PROJECT_ROOT / "output" / "sprite_sheet.png"
-OUTPUT_REFINED = PROJECT_ROOT / "output" / "sprite_sheet_refined.png"
-OUTPUT_SHEETS  = PROJECT_ROOT / "output" / "sheets"
+PROJECT_ROOT  = Path(__file__).parent.parent.parent
+OUTPUT_SHEETS = PROJECT_ROOT / "output" / "sheets"
 
-DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+DIRECTIONS  = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+_SAFE_NAME  = re.compile(r'[^a-zA-Z0-9_-]')
 
 
 @router.get("/check-esrgan")
@@ -44,6 +44,7 @@ class RefineRequest(BaseModel):
     dither:       bool = False
     is_animation: bool = False
     name:         str  = "sprite_sheet"
+    body_part:    str  = "full"
 
 
 def _refine_image(src: Path, dst: Path, upscale: bool, colors: int, dither: bool) -> None:
@@ -80,14 +81,59 @@ async def run_refine(req: RefineRequest):
     if req.colors < 0 or req.colors == 1:
         raise HTTPException(400, "colors must be 0 (skip) or >= 2.")
 
+    # Sanitize name the same way render.py does — files on disk use the safe version.
+    name = _SAFE_NAME.sub('_', req.name).strip('_') or 'sprite_sheet'
+
     if req.is_animation:
         if not OUTPUT_SHEETS.exists():
             raise HTTPException(404, "No animation sheets found. Run /render first.")
 
+        if req.body_part == "split":
+            # Split animation: two pass-sets — upper and lower body
+            failed = []
+            has_master_upper = False
+            has_master_legs  = False
+
+            for suffix, master_flag in [("_upper", "upper"), ("_legs", "legs")]:
+                prefix = f"{name}{suffix}"
+                for d in DIRECTIONS:
+                    src = OUTPUT_SHEETS / f"{prefix}_{d}.png"
+                    dst = OUTPUT_SHEETS / f"{prefix}_{d}_refined.png"
+                    if not src.exists():
+                        continue
+                    try:
+                        _refine_image(src, dst, req.upscale, req.colors, req.dither)
+                    except Exception as e:
+                        failed.append(f"{suffix}/{d}: {e}")
+
+                master_src = OUTPUT_SHEETS / f"{prefix}_all.png"
+                master_dst = OUTPUT_SHEETS / f"{prefix}_all_refined.png"
+                if master_src.exists():
+                    try:
+                        _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
+                        if master_flag == "upper":
+                            has_master_upper = True
+                        else:
+                            has_master_legs = True
+                    except Exception as e:
+                        failed.append(f"{suffix}/master: {e}")
+
+            if failed:
+                raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
+
+            return {
+                "output":           f"sheets/{name}",
+                "is_animation":     True,
+                "is_split":         True,
+                "has_master_upper": has_master_upper,
+                "has_master_legs":  has_master_legs,
+            }
+
+        # Non-split animation: refine the single pass set
         failed = []
         for d in DIRECTIONS:
-            src = OUTPUT_SHEETS / f"{req.name}_{d}.png"
-            dst = OUTPUT_SHEETS / f"{req.name}_{d}_refined.png"
+            src = OUTPUT_SHEETS / f"{name}_{d}.png"
+            dst = OUTPUT_SHEETS / f"{name}_{d}_refined.png"
             if not src.exists():
                 continue
             try:
@@ -96,8 +142,8 @@ async def run_refine(req: RefineRequest):
                 failed.append(f"{d}: {e}")
 
         has_master = False
-        master_src = OUTPUT_SHEETS / f"{req.name}_all.png"
-        master_dst = OUTPUT_SHEETS / f"{req.name}_all_refined.png"
+        master_src = OUTPUT_SHEETS / f"{name}_all.png"
+        master_dst = OUTPUT_SHEETS / f"{name}_all_refined.png"
         if master_src.exists():
             try:
                 _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
@@ -108,15 +154,31 @@ async def run_refine(req: RefineRequest):
         if failed:
             raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
 
-        return {"output": f"sheets/{req.name}", "is_animation": True, "has_master": has_master}
+        return {"output": f"sheets/{name}", "is_animation": True, "has_master": has_master}
 
-    # Single-frame
-    if not OUTPUT_SHEET.exists():
+    # Single-frame — split produces two files
+    if req.body_part == "split":
+        suffixes = [("_upper", f"{name}_upper"), ("_legs", f"{name}_legs")]
+        outputs = []
+        for _, base in suffixes:
+            src = PROJECT_ROOT / "output" / f"{base}.png"
+            dst = PROJECT_ROOT / "output" / f"{base}_refined.png"
+            if not src.exists():
+                raise HTTPException(404, f"No sprite sheet found: {base}.png. Run /render first.")
+            try:
+                _refine_image(src, dst, req.upscale, req.colors, req.dither)
+                outputs.append(f"{base}_refined.png")
+            except Exception as e:
+                raise HTTPException(500, f"Refinement failed for {base}: {e}")
+        return {"output": outputs, "is_split": True}
+
+    # Single-frame — full / upper / lower
+    src = PROJECT_ROOT / "output" / f"{name}.png"
+    dst = PROJECT_ROOT / "output" / f"{name}_refined.png"
+    if not src.exists():
         raise HTTPException(404, "No sprite sheet found. Run /render first.")
-
     try:
-        _refine_image(OUTPUT_SHEET, OUTPUT_REFINED, req.upscale, req.colors, req.dither)
+        _refine_image(src, dst, req.upscale, req.colors, req.dither)
     except Exception as e:
         raise HTTPException(500, f"Refinement failed: {e}")
-
-    return {"output": "sprite_sheet_refined.png"}
+    return {"output": f"{name}_refined.png"}

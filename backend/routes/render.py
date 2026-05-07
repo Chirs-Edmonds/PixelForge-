@@ -7,6 +7,8 @@ Routes:
     GET  /status/{id}   Poll job status
 """
 
+import asyncio
+import json
 import re
 import shutil
 import subprocess
@@ -27,6 +29,7 @@ PROJECT_ROOT    = Path(__file__).parent.parent.parent
 BLENDER_EXE     = Path(r"C:\Program Files\Blender Foundation\Blender 4.x\blender.exe")
 PYTHON_EXE      = Path(r"C:\Users\chris\AppData\Local\Programs\Python\Python312\python.exe")
 BAKE_SCRIPT     = PROJECT_ROOT / "scripts" / "blender_bake.py"
+BLEND_INFO_SCRIPT = PROJECT_ROOT / "scripts" / "blend_info.py"
 ASSEMBLE_SCRIPT = PROJECT_ROOT / "scripts" / "assemble_sheet.py"
 OUTPUT_FRAMES   = PROJECT_ROOT / "output" / "frames"
 OUTPUT_SHEETS   = PROJECT_ROOT / "output" / "sheets"
@@ -57,6 +60,45 @@ async def upload_mesh(file: UploadFile = File(...)):
 
 
 # ---------------------------------------------------------------------------
+# Blend-info endpoint — returns actions list for .blend files
+# ---------------------------------------------------------------------------
+
+@router.get("/blend-info")
+async def get_blend_info(filename: str):
+    """Return action names + frame ranges from a .blend file in assets/."""
+    if not filename.lower().endswith(".blend"):
+        return {"actions": []}
+
+    filepath = ASSETS_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(404, f"File not found in assets/: {filename}")
+
+    cmd = [
+        str(BLENDER_EXE),
+        "--background", "--factory-startup",
+        "--python", str(BLEND_INFO_SCRIPT),
+        "--", "--mesh", str(filepath.resolve()),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise HTTPException(500, "Blender timed out reading blend file info.")
+
+    output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+    for line in output.splitlines():
+        if line.startswith("BLEND_INFO_JSON:"):
+            return json.loads(line[len("BLEND_INFO_JSON:"):])
+
+    return {"actions": []}
+
+
+# ---------------------------------------------------------------------------
 # Render endpoint
 # ---------------------------------------------------------------------------
 
@@ -72,6 +114,7 @@ class RenderRequest(BaseModel):
     output_dir: str | None = None     # optional extra copy destination (e.g. game asset repo)
     merge_sheets: bool = False        # animation only: also produce a combined 8-row master sheet
     body_part: str = "full"           # "full" | "upper" | "lower" | "split"
+    action_name: str | None = None    # .blend only: name of action to render
 
 
 @router.post("/render")
@@ -104,7 +147,7 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     create_job(job_id)
     background_tasks.add_task(
         _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
-        safe_name, req.output_dir, req.merge_sheets, req.body_part
+        safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name
     )
     return {"job_id": job_id}
 
@@ -155,9 +198,10 @@ def _run_render(
     output_dir: str | None = None,
     merge_sheets: bool = False,
     body_part: str = "full",
+    action_name: str | None = None,
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part, action_name)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
@@ -166,7 +210,7 @@ def _run_render(
                    error=tb[-2000:])
 
 
-def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections=""):
+def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections="", action_name=None):
     cmd = [
         str(BLENDER_EXE),
         "--background", "--factory-startup",
@@ -181,6 +225,8 @@ def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_coll
         cmd += ["--frame-start", str(frame_start), "--frame-end", str(frame_end)]
     if hide_collections:
         cmd += ["--hide-collections", hide_collections]
+    if action_name:
+        cmd += ["--action", action_name]
     return cmd
 
 
@@ -218,6 +264,7 @@ def _run_render_inner(
     output_dir: str | None = None,
     merge_sheets: bool = False,
     body_part: str = "full",
+    action_name: str | None = None,
 ) -> None:
     render_size = sprite_size
     is_animation = (
@@ -259,7 +306,7 @@ def _run_render_inner(
         OUTPUT_FRAMES.mkdir(parents=True, exist_ok=True)
         sentinel = OUTPUT_FRAMES / ".render_done"
 
-        blender_cmd = _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections)
+        blender_cmd = _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections, action_name)
         returncode, output = _run_subprocess(blender_cmd, f"blender{pass_label}")
 
         blender_ok = sentinel.exists()

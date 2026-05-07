@@ -14,11 +14,48 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [bodyPart, setBodyPart] = useState('full')
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
+  const [blendActions, setBlendActions] = useState([])   // [{name, frame_start, frame_end}]
+  const [selectedAction, setSelectedAction] = useState('')
+  const [loadingActions, setLoadingActions] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem(LS_OUTPUT_DIR)
     if (saved) setOutputDir(saved)
   }, [])
+
+  // Fetch action list whenever a .blend file is loaded
+  useEffect(() => {
+    if (!meshFilename || !meshFilename.toLowerCase().endsWith('.blend')) {
+      setBlendActions([])
+      setSelectedAction('')
+      return
+    }
+    setLoadingActions(true)
+    fetch(`/api/blend-info?filename=${encodeURIComponent(meshFilename)}`)
+      .then(r => r.json())
+      .then(data => {
+        const actions = data.actions || []
+        setBlendActions(actions)
+        if (actions.length > 0) {
+          setSelectedAction(actions[0].name)
+          setFrameStart(actions[0].frame_start)
+          setFrameEnd(actions[0].frame_end)
+        } else {
+          setSelectedAction('')
+        }
+      })
+      .catch(() => { setBlendActions([]); setSelectedAction('') })
+      .finally(() => setLoadingActions(false))
+  }, [meshFilename])
+
+  function handleActionChange(name) {
+    setSelectedAction(name)
+    const action = blendActions.find(a => a.name === name)
+    if (action) {
+      setFrameStart(action.frame_start)
+      setFrameEnd(action.frame_end)
+    }
+  }
 
   function handleOutputDirChange(val) {
     setOutputDir(val)
@@ -45,6 +82,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
         output_dir: outputDir.trim() || null,
         merge_sheets: isAnimation && mergeSheets,
         body_part: bodyPart,
+        action_name: selectedAction || null,
       }
       if (isAnimation) {
         body.frame_start = frameStart
@@ -98,6 +136,38 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
           Renders at {spriteSize}×{spriteSize}px. Use larger sizes for higher detail.
         </p>
       </div>
+
+      {/* Action selector — .blend files only */}
+      {meshFilename && meshFilename.toLowerCase().endsWith('.blend') && (
+        <div className="mb-4">
+          <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Action</p>
+          {loadingActions ? (
+            <p className="text-xs text-white/30">Reading actions…</p>
+          ) : blendActions.length === 0 ? (
+            <p className="text-xs text-white/30">No actions found in this .blend file.</p>
+          ) : (
+            <>
+              <select
+                value={selectedAction}
+                onChange={e => handleActionChange(e.target.value)}
+                className="w-full bg-[#1a1a22] border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 cursor-pointer"
+              >
+                {blendActions.map(a => (
+                  <option key={a.name} value={a.name}>{a.name}</option>
+                ))}
+              </select>
+              {selectedAction && (() => {
+                const a = blendActions.find(x => x.name === selectedAction)
+                return a ? (
+                  <p className="text-xs text-white/30 mt-1.5">
+                    Frames {a.frame_start}–{a.frame_end} ({a.frame_end - a.frame_start + 1} frames)
+                  </p>
+                ) : null
+              })()}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Output mode */}
       <div className="mb-4">

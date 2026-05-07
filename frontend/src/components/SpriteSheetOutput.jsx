@@ -35,7 +35,11 @@ function SplitSheetsOutput({ splitSheets, frameCount, spriteSize }) {
       <SpriteSheetOutput
         key={sheet.label}
         spriteSheetUrl={sheet.spriteSheetUrl}
+        refinedUrl={sheet.refinedUrl}
         animationUrls={sheet.animationUrls}
+        refinedAnimationUrls={sheet.refinedAnimationUrls}
+        mergedUrl={sheet.mergedUrl}
+        refinedMergedUrl={sheet.refinedMergedUrl}
         frameCount={frameCount}
         spriteSize={spriteSize}
         spriteName={sheet.spriteName}
@@ -231,6 +235,27 @@ export function SpriteSheetOutput({
                 ))}
               </div>
             </div>
+            {/* Before/after comparison — shown only after refinement */}
+            {isRefined && refinedMergedUrl && mergedUrl && (
+              <div className="mt-3 bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-white/20">Original master sheet</p>
+                  <a
+                    href={mergedUrl}
+                    download={`${spriteName}_all_original.png`}
+                    className="text-xs text-white/30 hover:text-white/60 transition-colors"
+                  >
+                    ↓ original
+                  </a>
+                </div>
+                <img
+                  src={mergedUrl}
+                  alt="Original master sprite sheet"
+                  style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block', opacity: 0.7 }}
+                  className="rounded"
+                />
+              </div>
+            )}
           </div>
         )}
       </>

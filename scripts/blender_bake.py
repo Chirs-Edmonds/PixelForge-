@@ -60,6 +60,9 @@ def parse_args():
                         help="Last frame to render. Default: scene frame_end.")
     parser.add_argument("--hide-collections", type=str, default="",
                         help="Comma-separated Blender collection names to hide before rendering.")
+    parser.add_argument("--action", type=str, default=None,
+                        help="Name of the action to render (e.g. 'Char_Run_Forward'). "
+                             ".blend files only. If omitted, uses the action active at save time.")
     return parser.parse_args(argv)
 
 
@@ -86,6 +89,89 @@ def setup_scene(size):
     scene.render.use_file_extension = False
 
     return scene
+
+
+def _setup_from_blend(mesh_path, size, action_name=None):
+    """Open a .blend file directly so its View Layer visibility is fully preserved.
+
+    bpy.data.libraries.load only reads data-block properties (hide_render,
+    hide_viewport on objects/collections) but loses View Layer-level exclusions
+    stored in layer_collection.exclude / layer_collection.hide_viewport.  Opening
+    the file with open_mainfile keeps those intact, then we override just the
+    render settings PixelForge needs.
+    """
+    bpy.ops.wm.open_mainfile(filepath=os.path.abspath(mesh_path))
+    scene = bpy.context.scene
+
+    try:
+        scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    except TypeError:
+        scene.render.engine = 'BLENDER_EEVEE'
+
+    scene.render.film_transparent = True
+    scene.render.image_settings.file_format = 'PNG'
+    scene.render.image_settings.color_mode = 'RGBA'
+    scene.render.resolution_x = size
+    scene.render.resolution_y = size
+    scene.render.resolution_percentage = 100
+    scene.render.use_file_extension = False
+
+    # Remove any cameras the file ships with — PixelForge adds its own.
+    for obj in list(scene.objects):
+        if obj.type == 'CAMERA':
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    # Replace original lights with PixelForge's standardised rig so output is
+    # consistent regardless of what lighting the source file had.
+    for obj in list(scene.objects):
+        if obj.type == 'LIGHT':
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    add_lighting(scene)
+    _sync_view_layer_visibility(scene)
+
+    if action_name:
+        target = bpy.data.actions.get(action_name)
+        if target is None:
+            print(f"[PixelForge] WARNING: action {action_name!r} not found — using saved active action.")
+        else:
+            for obj in scene.objects:
+                if obj.type == 'ARMATURE' and obj.animation_data:
+                    obj.animation_data.action = target
+            # Mirror the action's frame range onto the scene so single-frame
+            # mode lands on frame 0 (or the action start) rather than whatever
+            # the file happened to save.
+            scene.frame_start = int(target.frame_range[0])
+            scene.frame_end   = int(target.frame_range[1])
+            print(f"[PixelForge] Action set to {action_name!r} "
+                  f"(frames {scene.frame_start}–{scene.frame_end})")
+
+    print(f"[PixelForge] Opened .blend (View Layer visibility preserved): {mesh_path}")
+    return scene
+
+
+def _sync_view_layer_visibility(scene):
+    """Propagate View Layer viewport-hide to render-hide.
+
+    In Blender, layer_collection.hide_viewport=True hides a collection in the
+    3D viewport but does NOT prevent it from rendering (only exclude=True or
+    collection.hide_render=True does that).  We walk the active View Layer tree
+    and set hide_render=True on any collection the artist has hidden in the
+    viewport, so PixelForge renders exactly what is visible in Blender.
+    """
+    vl = scene.view_layers[0]
+
+    def walk(layer_col):
+        if layer_col.hide_viewport or layer_col.exclude:
+            col = layer_col.collection
+            col.hide_render = True
+            print(f"[PixelForge] Render-hiding collection "
+                  f"(exclude={layer_col.exclude}, hide_viewport={layer_col.hide_viewport}): "
+                  f"{col.name!r}")
+        for child in layer_col.children:
+            walk(child)
+
+    walk(vl.layer_collection)
 
 
 # ---------------------------------------------------------------------------
@@ -121,28 +207,8 @@ def load_or_generate_mesh(args, scene):
         if ext in (".glb", ".gltf"):
             bpy.ops.import_scene.gltf(filepath=mesh_path)
         elif ext == ".blend":
-            with bpy.data.libraries.load(mesh_path) as (data_from, data_to):
-                data_to.objects    = list(data_from.objects)
-                data_to.collections = list(data_from.collections)
-
-            # Link collection hierarchy so --hide-collections can find named collections.
-            # Only link top-level collections (those not nested inside another imported one).
-            nested = set()
-            for col in data_to.collections:
-                if col is not None:
-                    for child in col.children:
-                        nested.add(child)
-            for col in data_to.collections:
-                if col is not None and col not in nested:
-                    try:
-                        scene.collection.children.link(col)
-                    except Exception as e:
-                        print(f"[PixelForge] Warning: could not link collection '{col.name}': {e}")
-
-            # Safety net: link any objects that ended up in no collection
-            for obj in data_to.objects:
-                if obj is not None and not obj.users_collection:
-                    scene.collection.objects.link(obj)
+            # File was already opened via _setup_from_blend(); scene is ready.
+            pass
         elif ext == ".fbx":
             bpy.ops.import_scene.fbx(filepath=mesh_path)
         elif ext == ".obj":
@@ -411,8 +477,12 @@ def main():
     print(f"[PixelForge] Frame size : {args.size}x{args.size}")
     print(f"[PixelForge] Mesh input : {args.mesh or '(test primitive)'}")
 
-    scene = setup_scene(args.size)
-    add_lighting(scene)
+    ext = os.path.splitext(args.mesh)[1].lower() if args.mesh else ""
+    if ext == ".blend":
+        scene = _setup_from_blend(args.mesh, args.size, args.action)
+    else:
+        scene = setup_scene(args.size)
+        add_lighting(scene)
     bbox_min, bbox_max, center = load_or_generate_mesh(args, scene)
 
     if args.hide_collections:
