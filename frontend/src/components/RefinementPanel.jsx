@@ -8,7 +8,7 @@ const COLOR_OPTIONS = [
   { value: 64, label: '64' },
 ]
 
-export function RefinementPanel({ disabled, onRefined, onAnimationRefined, animConfig }) {
+export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSplitRefined, animConfig }) {
   const [upscale, setUpscale]         = useState(false)
   const [colors, setColors]           = useState(0)
   const [dither, setDither]           = useState(false)
@@ -18,17 +18,20 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, animC
 
   const nothingToDo = !upscale && colors === 0
   const isAnimation = !!animConfig?.isAnimation
+  // isSplit covers all split renders (single-frame AND animation) — routed before isAnimation
+  const isSplit     = animConfig?.bodyPart === 'split'
 
   async function handleRefine() {
     setError(null)
     setSuccess(false)
     setRunning(true)
     try {
-      const body = { upscale, colors, dither }
-      if (isAnimation) {
-        body.is_animation = true
-        body.name = animConfig.name || 'sprite_sheet'
+      const body = {
+        upscale, colors, dither,
+        name:      animConfig?.name      || 'sprite_sheet',
+        body_part: animConfig?.bodyPart  || 'full',
       }
+      if (isAnimation) body.is_animation = true
       const res = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,7 +40,9 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, animC
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Refinement failed')
       setSuccess(true)
-      if (isAnimation) {
+      if (isSplit) {
+        onSplitRefined(data)          // handles all split: single-frame AND animation
+      } else if (isAnimation) {
         onAnimationRefined(data)
       } else {
         onRefined(`/api/output/${data.output}?t=${Date.now()}`)
@@ -106,10 +111,10 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, animC
         className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
       >
         {running
-          ? (isAnimation ? 'Refining all sheets...' : 'Refining...')
+          ? (isSplit && isAnimation ? 'Refining split sheets...' : isSplit ? 'Refining both sheets...' : isAnimation ? 'Refining all sheets...' : 'Refining...')
           : nothingToDo
             ? 'Enable upscale or palette to refine'
-            : isAnimation ? 'Refine all sheets' : 'Refine'}
+            : isSplit && isAnimation ? 'Refine split sheets' : isSplit ? 'Refine both sheets' : isAnimation ? 'Refine all sheets' : 'Refine'}
       </button>
     </div>
   )

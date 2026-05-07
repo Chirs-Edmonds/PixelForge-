@@ -42,27 +42,35 @@ export default function App() {
     }
 
     if (config?.bodyPart === 'split') {
-      // Two passes were rendered — build separate URL sets for upper and lower
+      // Two passes were rendered — build separate URL sets for upper and lower.
+      // jobData.output = "sheets/{safe_name}_legs" for split renders; strip both parts
+      // to recover the sanitized base name the server actually wrote files under.
+      const safeBase   = jobData?.output?.replace('sheets/', '').replace(/_legs(\.png)?$/, '') || name
+      const showMerged = config.isAnimation && config.mergeSheets
       setSplitSheets([
         {
           label: 'Upper body',
-          spriteName: `${name}_upper`,
-          animationUrls:  config.isAnimation ? buildAnimUrls(`${name}_upper`) : null,
-          spriteSheetUrl: config.isAnimation ? null : `/api/output/${name}_upper.png?t=${ts}`,
+          spriteName: `${safeBase}_upper`,
+          animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_upper`) : null,
+          spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_upper.png?t=${ts}`,
+          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_upper_all.png?t=${ts}` : null,
         },
         {
           label: 'Lower body',
-          spriteName: `${name}_legs`,
-          animationUrls:  config.isAnimation ? buildAnimUrls(`${name}_legs`) : null,
-          spriteSheetUrl: config.isAnimation ? null : `/api/output/${name}_legs.png?t=${ts}`,
+          spriteName: `${safeBase}_legs`,
+          animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_legs`) : null,
+          spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_legs.png?t=${ts}`,
+          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_legs_all.png?t=${ts}` : null,
         },
       ])
       setAnimationUrls(null)
       setSpriteSheetUrl(null)
       setMergedUrl(null)
     } else if (config?.isAnimation) {
+      // Use the server-returned prefix (safe_name) so URLs match the sanitized filenames on disk
+      const animPrefix = jobData?.output?.replace('sheets/', '') || name
       setSplitSheets(null)
-      setAnimationUrls(buildAnimUrls(name))
+      setAnimationUrls(buildAnimUrls(animPrefix))
       setSpriteSheetUrl(null)
       setMergedUrl(jobData?.merged_url ? `${jobData.merged_url}?t=${ts}` : null)
     } else {
@@ -78,16 +86,48 @@ export default function App() {
     setIsRendering(false)
   }
 
+  function handleSplitRefined(data) {
+    const ts = Date.now()
+
+    if (data?.is_split && data?.is_animation) {
+      // Split animation: refine both pass-sets; each tab gets its own refined strips + merged sheet
+      const prefix   = data.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
+      const suffixes = ['_upper', '_legs']
+      const hasMasters = [data.has_master_upper, data.has_master_legs]
+      setSplitSheets(prev => prev.map((sheet, i) => {
+        const suf = suffixes[i]
+        const refinedDirUrls = {}
+        DIRECTIONS.forEach(d => {
+          refinedDirUrls[d] = `/api/output/sheets/${prefix}${suf}_${d}_refined.png?t=${ts}`
+        })
+        return {
+          ...sheet,
+          refinedAnimationUrls: refinedDirUrls,
+          refinedMergedUrl: hasMasters[i]
+            ? `/api/output/sheets/${prefix}${suf}_all_refined.png?t=${ts}`
+            : null,
+        }
+      }))
+    } else {
+      // Single-frame split: data.output = ["{name}_upper_refined.png", "{name}_legs_refined.png"]
+      setSplitSheets(prev => prev.map((sheet, i) => ({
+        ...sheet,
+        refinedUrl: `/api/output/${data.output[i]}?t=${ts}`,
+      })))
+    }
+  }
+
   function handleAnimationRefined(data) {
     const ts = Date.now()
-    const name = animConfig?.name || 'sprite_sheet'
+    // Use server-returned prefix so names match sanitized filenames on disk
+    const prefix = data?.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
     const urls = {}
     DIRECTIONS.forEach(d => {
-      urls[d] = `/api/output/sheets/${name}_${d}_refined.png?t=${ts}`
+      urls[d] = `/api/output/sheets/${prefix}_${d}_refined.png?t=${ts}`
     })
     setRefinedAnimationUrls(urls)
     if (data?.has_master) {
-      setRefinedMergedUrl(`/api/output/sheets/${name}_all_refined.png?t=${ts}`)
+      setRefinedMergedUrl(`/api/output/sheets/${prefix}_all_refined.png?t=${ts}`)
     }
   }
 
@@ -158,6 +198,7 @@ export default function App() {
           disabled={!renderDone}
           onRefined={setRefinedUrl}
           onAnimationRefined={handleAnimationRefined}
+          onSplitRefined={handleSplitRefined}
           animConfig={animConfig}
         />
 
