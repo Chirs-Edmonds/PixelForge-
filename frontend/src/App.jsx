@@ -90,24 +90,16 @@ export default function App() {
     const ts = Date.now()
 
     if (data?.is_split && data?.is_animation) {
-      // Split animation: refine both pass-sets; each tab gets its own refined strips + merged sheet
+      // Split animation: only master sheets are refined — update each tab's mergedUrl.
       const prefix   = data.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
       const suffixes = ['_upper', '_legs']
       const hasMasters = [data.has_master_upper, data.has_master_legs]
-      setSplitSheets(prev => prev.map((sheet, i) => {
-        const suf = suffixes[i]
-        const refinedDirUrls = {}
-        DIRECTIONS.forEach(d => {
-          refinedDirUrls[d] = `/api/output/refined/${prefix}${suf}_${d}_refined.png?t=${ts}`
-        })
-        return {
-          ...sheet,
-          refinedAnimationUrls: refinedDirUrls,
-          refinedMergedUrl: hasMasters[i]
-            ? `/api/output/refined/${prefix}${suf}_all_refined.png?t=${ts}`
-            : null,
-        }
-      }))
+      setSplitSheets(prev => prev.map((sheet, i) => ({
+        ...sheet,
+        refinedMergedUrl: hasMasters[i]
+          ? `/api/output/refined/${prefix}${suffixes[i]}_all_refined.png?t=${ts}`
+          : null,
+      })))
     } else {
       // Single-frame split: data.output = ["{name}_upper_refined.png", "{name}_legs_refined.png"]
       setSplitSheets(prev => prev.map((sheet, i) => ({
@@ -119,13 +111,7 @@ export default function App() {
 
   function handleAnimationRefined(data) {
     const ts = Date.now()
-    // Use server-returned prefix so names match sanitized filenames on disk
     const prefix = data?.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
-    const urls = {}
-    DIRECTIONS.forEach(d => {
-      urls[d] = `/api/output/refined/${prefix}_${d}_refined.png?t=${ts}`
-    })
-    setRefinedAnimationUrls(urls)
     if (data?.has_master) {
       setRefinedMergedUrl(`/api/output/refined/${prefix}_all_refined.png?t=${ts}`)
     }

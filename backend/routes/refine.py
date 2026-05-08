@@ -91,34 +91,26 @@ async def run_refine(req: RefineRequest):
             raise HTTPException(404, "No animation sheets found. Run /render first.")
 
         if req.body_part == "split":
-            # Split animation: two pass-sets — upper and lower body
+            # Split animation: refine only the merged master sheet for each body part.
             failed = []
             has_master_upper = False
             has_master_legs  = False
 
             for suffix, master_flag in [("_upper", "upper"), ("_legs", "legs")]:
                 prefix = f"{name}{suffix}"
-                for d in DIRECTIONS:
-                    src = OUTPUT_SHEETS / f"{prefix}_{d}.png"
-                    dst = OUTPUT_REFINED / f"{prefix}_{d}_refined.png"
-                    if not src.exists():
-                        continue
-                    try:
-                        _refine_image(src, dst, req.upscale, req.colors, req.dither)
-                    except Exception as e:
-                        failed.append(f"{suffix}/{d}: {e}")
-
                 master_src = OUTPUT_MERGED / f"{prefix}_all.png"
                 master_dst = OUTPUT_REFINED / f"{prefix}_all_refined.png"
-                if master_src.exists():
-                    try:
-                        _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
-                        if master_flag == "upper":
-                            has_master_upper = True
-                        else:
-                            has_master_legs = True
-                    except Exception as e:
-                        failed.append(f"{suffix}/master: {e}")
+                if not master_src.exists():
+                    failed.append(f"{suffix}: no merged master sheet — run render with 'Merge 8-direction' enabled")
+                    continue
+                try:
+                    _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
+                    if master_flag == "upper":
+                        has_master_upper = True
+                    else:
+                        has_master_legs = True
+                except Exception as e:
+                    failed.append(f"{suffix}/master: {e}")
 
             if failed:
                 raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
@@ -131,32 +123,20 @@ async def run_refine(req: RefineRequest):
                 "has_master_legs":  has_master_legs,
             }
 
-        # Non-split animation: refine the single pass set
-        failed = []
-        for d in DIRECTIONS:
-            src = OUTPUT_SHEETS / f"{name}_{d}.png"
-            dst = OUTPUT_REFINED / f"{name}_{d}_refined.png"
-            if not src.exists():
-                continue
-            try:
-                _refine_image(src, dst, req.upscale, req.colors, req.dither)
-            except Exception as e:
-                failed.append(f"{d}: {e}")
-
-        has_master = False
+        # Non-split animation: refine only the merged master sheet.
         master_src = OUTPUT_MERGED / f"{name}_all.png"
         master_dst = OUTPUT_REFINED / f"{name}_all_refined.png"
-        if master_src.exists():
-            try:
-                _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
-                has_master = True
-            except Exception as e:
-                failed.append(f"master: {e}")
+        if not master_src.exists():
+            raise HTTPException(
+                404,
+                "No merged master sheet found. Run /render with 'Merge 8-direction' enabled first."
+            )
+        try:
+            _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
+        except Exception as e:
+            raise HTTPException(500, f"Refinement failed: {e}")
 
-        if failed:
-            raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
-
-        return {"output": f"sheets/{name}", "is_animation": True, "has_master": has_master}
+        return {"output": f"sheets/{name}", "is_animation": True, "has_master": True}
 
     # Single-frame — split produces two files
     if req.body_part == "split":
