@@ -53,14 +53,14 @@ export default function App() {
           spriteName: `${safeBase}_upper`,
           animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_upper`) : null,
           spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_upper.png?t=${ts}`,
-          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_upper_all.png?t=${ts}` : null,
+          mergedUrl: showMerged ? `/api/output/merged/${safeBase}_upper_all.png?t=${ts}` : null,
         },
         {
           label: 'Lower body',
           spriteName: `${safeBase}_legs`,
           animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_legs`) : null,
           spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_legs.png?t=${ts}`,
-          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_legs_all.png?t=${ts}` : null,
+          mergedUrl: showMerged ? `/api/output/merged/${safeBase}_legs_all.png?t=${ts}` : null,
         },
       ])
       setAnimationUrls(null)
@@ -98,13 +98,13 @@ export default function App() {
         const suf = suffixes[i]
         const refinedDirUrls = {}
         DIRECTIONS.forEach(d => {
-          refinedDirUrls[d] = `/api/output/sheets/${prefix}${suf}_${d}_refined.png?t=${ts}`
+          refinedDirUrls[d] = `/api/output/refined/${prefix}${suf}_${d}_refined.png?t=${ts}`
         })
         return {
           ...sheet,
           refinedAnimationUrls: refinedDirUrls,
           refinedMergedUrl: hasMasters[i]
-            ? `/api/output/sheets/${prefix}${suf}_all_refined.png?t=${ts}`
+            ? `/api/output/refined/${prefix}${suf}_all_refined.png?t=${ts}`
             : null,
         }
       }))
@@ -123,11 +123,11 @@ export default function App() {
     const prefix = data?.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
     const urls = {}
     DIRECTIONS.forEach(d => {
-      urls[d] = `/api/output/sheets/${prefix}_${d}_refined.png?t=${ts}`
+      urls[d] = `/api/output/refined/${prefix}_${d}_refined.png?t=${ts}`
     })
     setRefinedAnimationUrls(urls)
     if (data?.has_master) {
-      setRefinedMergedUrl(`/api/output/sheets/${prefix}_all_refined.png?t=${ts}`)
+      setRefinedMergedUrl(`/api/output/refined/${prefix}_all_refined.png?t=${ts}`)
     }
   }
 
