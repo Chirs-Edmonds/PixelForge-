@@ -292,6 +292,7 @@ def _run_render_inner(
     if is_animation:
         _clear_dir(OUTPUT_SHEETS)
         _clear_dir(OUTPUT_MERGED)
+        _clear_dir(OUTPUT_REFINED)  # stale refined files don't match new render
 
     for pass_idx, (hide_collections, pass_name) in enumerate(passes):
         pass_label = f" (pass {pass_idx + 1}/{total_passes})" if total_passes > 1 else ""
@@ -353,7 +354,13 @@ def _run_render_inner(
 
     # Build result metadata
     final_pass_name = passes[-1][1]
-    merged_url = f"/api/output/merged/{final_pass_name}_all.png" if (is_animation and merge_sheets) else None
+    # Split renders have two merged sheets (upper + legs); the frontend constructs both URLs
+    # from safeBase itself, so we only return merged_url for single-pass animation renders.
+    merged_url = (
+        f"/api/output/merged/{final_pass_name}_all.png"
+        if (is_animation and merge_sheets and len(passes) == 1)
+        else None
+    )
 
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",
