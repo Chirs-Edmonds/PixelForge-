@@ -25,8 +25,10 @@ except ImportError:
 
 router = APIRouter()
 
-PROJECT_ROOT  = Path(__file__).parent.parent.parent
-OUTPUT_SHEETS = PROJECT_ROOT / "output" / "sheets"
+PROJECT_ROOT   = Path(__file__).parent.parent.parent
+OUTPUT_SHEETS  = PROJECT_ROOT / "output" / "sheets"
+OUTPUT_MERGED  = PROJECT_ROOT / "output" / "merged"
+OUTPUT_REFINED = PROJECT_ROOT / "output" / "refined"
 
 DIRECTIONS  = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 _SAFE_NAME  = re.compile(r'[^a-zA-Z0-9_-]')
@@ -89,34 +91,26 @@ async def run_refine(req: RefineRequest):
             raise HTTPException(404, "No animation sheets found. Run /render first.")
 
         if req.body_part == "split":
-            # Split animation: two pass-sets — upper and lower body
+            # Split animation: refine only the merged master sheet for each body part.
             failed = []
             has_master_upper = False
             has_master_legs  = False
 
             for suffix, master_flag in [("_upper", "upper"), ("_legs", "legs")]:
                 prefix = f"{name}{suffix}"
-                for d in DIRECTIONS:
-                    src = OUTPUT_SHEETS / f"{prefix}_{d}.png"
-                    dst = OUTPUT_SHEETS / f"{prefix}_{d}_refined.png"
-                    if not src.exists():
-                        continue
-                    try:
-                        _refine_image(src, dst, req.upscale, req.colors, req.dither)
-                    except Exception as e:
-                        failed.append(f"{suffix}/{d}: {e}")
-
-                master_src = OUTPUT_SHEETS / f"{prefix}_all.png"
-                master_dst = OUTPUT_SHEETS / f"{prefix}_all_refined.png"
-                if master_src.exists():
-                    try:
-                        _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
-                        if master_flag == "upper":
-                            has_master_upper = True
-                        else:
-                            has_master_legs = True
-                    except Exception as e:
-                        failed.append(f"{suffix}/master: {e}")
+                master_src = OUTPUT_MERGED / f"{prefix}_all.png"
+                master_dst = OUTPUT_REFINED / f"{prefix}_all_refined.png"
+                if not master_src.exists():
+                    failed.append(f"{suffix}: no merged master sheet — run render with 'Merge 8-direction' enabled")
+                    continue
+                try:
+                    _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
+                    if master_flag == "upper":
+                        has_master_upper = True
+                    else:
+                        has_master_legs = True
+                except Exception as e:
+                    failed.append(f"{suffix}/master: {e}")
 
             if failed:
                 raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
@@ -129,32 +123,20 @@ async def run_refine(req: RefineRequest):
                 "has_master_legs":  has_master_legs,
             }
 
-        # Non-split animation: refine the single pass set
-        failed = []
-        for d in DIRECTIONS:
-            src = OUTPUT_SHEETS / f"{name}_{d}.png"
-            dst = OUTPUT_SHEETS / f"{name}_{d}_refined.png"
-            if not src.exists():
-                continue
-            try:
-                _refine_image(src, dst, req.upscale, req.colors, req.dither)
-            except Exception as e:
-                failed.append(f"{d}: {e}")
+        # Non-split animation: refine only the merged master sheet.
+        master_src = OUTPUT_MERGED / f"{name}_all.png"
+        master_dst = OUTPUT_REFINED / f"{name}_all_refined.png"
+        if not master_src.exists():
+            raise HTTPException(
+                404,
+                "No merged master sheet found. Run /render with 'Merge 8-direction' enabled first."
+            )
+        try:
+            _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
+        except Exception as e:
+            raise HTTPException(500, f"Refinement failed: {e}")
 
-        has_master = False
-        master_src = OUTPUT_SHEETS / f"{name}_all.png"
-        master_dst = OUTPUT_SHEETS / f"{name}_all_refined.png"
-        if master_src.exists():
-            try:
-                _refine_image(master_src, master_dst, req.upscale, req.colors, req.dither)
-                has_master = True
-            except Exception as e:
-                failed.append(f"master: {e}")
-
-        if failed:
-            raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
-
-        return {"output": f"sheets/{name}", "is_animation": True, "has_master": has_master}
+        return {"output": f"sheets/{name}", "is_animation": True, "has_master": True}
 
     # Single-frame — split produces two files
     if req.body_part == "split":
@@ -162,23 +144,23 @@ async def run_refine(req: RefineRequest):
         outputs = []
         for _, base in suffixes:
             src = PROJECT_ROOT / "output" / f"{base}.png"
-            dst = PROJECT_ROOT / "output" / f"{base}_refined.png"
+            dst = OUTPUT_REFINED / f"{base}_refined.png"
             if not src.exists():
                 raise HTTPException(404, f"No sprite sheet found: {base}.png. Run /render first.")
             try:
                 _refine_image(src, dst, req.upscale, req.colors, req.dither)
-                outputs.append(f"{base}_refined.png")
+                outputs.append(f"refined/{base}_refined.png")
             except Exception as e:
                 raise HTTPException(500, f"Refinement failed for {base}: {e}")
         return {"output": outputs, "is_split": True}
 
     # Single-frame — full / upper / lower
     src = PROJECT_ROOT / "output" / f"{name}.png"
-    dst = PROJECT_ROOT / "output" / f"{name}_refined.png"
+    dst = OUTPUT_REFINED / f"{name}_refined.png"
     if not src.exists():
         raise HTTPException(404, "No sprite sheet found. Run /render first.")
     try:
         _refine_image(src, dst, req.upscale, req.colors, req.dither)
     except Exception as e:
         raise HTTPException(500, f"Refinement failed: {e}")
-    return {"output": f"{name}_refined.png"}
+    return {"output": f"refined/{name}_refined.png"}

@@ -16,10 +16,12 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
   const [error, setError]             = useState(null)
   const [success, setSuccess]         = useState(false)
 
-  const nothingToDo = !upscale && colors === 0
-  const isAnimation = !!animConfig?.isAnimation
+  const nothingToDo  = !upscale && colors === 0
+  const isAnimation  = !!animConfig?.isAnimation
   // isSplit covers all split renders (single-frame AND animation) — routed before isAnimation
-  const isSplit     = animConfig?.bodyPart === 'split'
+  const isSplit      = animConfig?.bodyPart === 'split'
+  // Animation refine only works when merge was enabled (output/merged/ must have the _all.png)
+  const needsMerge   = isAnimation && !animConfig?.mergeSheets
 
   async function handleRefine() {
     setError(null)
@@ -102,12 +104,17 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
         </label>
       )}
 
+      {needsMerge && (
+        <p className="text-xs text-amber-400 mb-3">
+          Animation refinement requires "Merge 8-direction" to be enabled. Re-render with merge checked.
+        </p>
+      )}
       {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
       {success && <p className="text-xs text-green-400 mb-3">Refinement complete ✓</p>}
 
       <button
         onClick={handleRefine}
-        disabled={running || nothingToDo || disabled}
+        disabled={running || nothingToDo || disabled || needsMerge}
         className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
       >
         {running

@@ -26,6 +26,8 @@ async def lifespan(app: FastAPI):
     # Ensure output directories exist on startup
     (OUTPUT_DIR / "frames").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "sheets").mkdir(parents=True, exist_ok=True)
+    (OUTPUT_DIR / "merged").mkdir(parents=True, exist_ok=True)
+    (OUTPUT_DIR / "refined").mkdir(parents=True, exist_ok=True)
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     yield
 

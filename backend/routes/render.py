@@ -33,6 +33,8 @@ BLEND_INFO_SCRIPT = PROJECT_ROOT / "scripts" / "blend_info.py"
 ASSEMBLE_SCRIPT = PROJECT_ROOT / "scripts" / "assemble_sheet.py"
 OUTPUT_FRAMES   = PROJECT_ROOT / "output" / "frames"
 OUTPUT_SHEETS   = PROJECT_ROOT / "output" / "sheets"
+OUTPUT_MERGED   = PROJECT_ROOT / "output" / "merged"
+OUTPUT_REFINED  = PROJECT_ROOT / "output" / "refined"
 ASSETS_DIR      = PROJECT_ROOT / "assets"
 
 VALID_SIZES = {16, 32, 64, 128, 256}
@@ -243,7 +245,8 @@ def _build_assemble_cmd(sprite_size, is_animation, name, merge_sheets=False):
             "--prefix",    name,
         ]
         if merge_sheets:
-            cmd.append("--merge")
+            OUTPUT_MERGED.mkdir(parents=True, exist_ok=True)
+            cmd += ["--merge", "--mergeddir", str(OUTPUT_MERGED)]
     else:
         cmd = [
             str(PYTHON_EXE), str(ASSEMBLE_SCRIPT),
@@ -289,6 +292,8 @@ def _run_render_inner(
     LOG_FILE.write_text("", encoding="utf-8")  # clear log for this render
     if is_animation:
         _clear_dir(OUTPUT_SHEETS)
+        _clear_dir(OUTPUT_MERGED)
+        _clear_dir(OUTPUT_REFINED)  # stale refined files don't match new render
 
     for pass_idx, (hide_collections, pass_name) in enumerate(passes):
         pass_label = f" (pass {pass_idx + 1}/{total_passes})" if total_passes > 1 else ""
@@ -337,6 +342,11 @@ def _run_render_inner(
             for _, pass_name in passes:
                 for f in OUTPUT_SHEETS.glob(f"{pass_name}_*.png"):
                     shutil.copy2(f, dest / f.name)
+            if merge_sheets:
+                for _, pass_name in passes:
+                    merged_file = OUTPUT_MERGED / f"{pass_name}_all.png"
+                    if merged_file.exists():
+                        shutil.copy2(merged_file, dest / merged_file.name)
         else:
             for _, pass_name in passes:
                 src = PROJECT_ROOT / "output" / f"{pass_name}.png"
@@ -345,7 +355,13 @@ def _run_render_inner(
 
     # Build result metadata
     final_pass_name = passes[-1][1]
-    merged_url = f"/api/output/sheets/{final_pass_name}_all.png" if (is_animation and merge_sheets) else None
+    # Split renders have two merged sheets (upper + legs); the frontend constructs both URLs
+    # from safeBase itself, so we only return merged_url for single-pass animation renders.
+    merged_url = (
+        f"/api/output/merged/{final_pass_name}_all.png"
+        if (is_animation and merge_sheets and len(passes) == 1)
+        else None
+    )
 
     update_job(job_id, status="done", step="done",
                progress_msg="Render complete.",

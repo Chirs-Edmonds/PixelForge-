@@ -53,14 +53,14 @@ export default function App() {
           spriteName: `${safeBase}_upper`,
           animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_upper`) : null,
           spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_upper.png?t=${ts}`,
-          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_upper_all.png?t=${ts}` : null,
+          mergedUrl: showMerged ? `/api/output/merged/${safeBase}_upper_all.png?t=${ts}` : null,
         },
         {
           label: 'Lower body',
           spriteName: `${safeBase}_legs`,
           animationUrls:  config.isAnimation ? buildAnimUrls(`${safeBase}_legs`) : null,
           spriteSheetUrl: config.isAnimation ? null : `/api/output/${safeBase}_legs.png?t=${ts}`,
-          mergedUrl: showMerged ? `/api/output/sheets/${safeBase}_legs_all.png?t=${ts}` : null,
+          mergedUrl: showMerged ? `/api/output/merged/${safeBase}_legs_all.png?t=${ts}` : null,
         },
       ])
       setAnimationUrls(null)
@@ -90,24 +90,16 @@ export default function App() {
     const ts = Date.now()
 
     if (data?.is_split && data?.is_animation) {
-      // Split animation: refine both pass-sets; each tab gets its own refined strips + merged sheet
+      // Split animation: only master sheets are refined — update each tab's mergedUrl.
       const prefix   = data.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
       const suffixes = ['_upper', '_legs']
       const hasMasters = [data.has_master_upper, data.has_master_legs]
-      setSplitSheets(prev => prev.map((sheet, i) => {
-        const suf = suffixes[i]
-        const refinedDirUrls = {}
-        DIRECTIONS.forEach(d => {
-          refinedDirUrls[d] = `/api/output/sheets/${prefix}${suf}_${d}_refined.png?t=${ts}`
-        })
-        return {
-          ...sheet,
-          refinedAnimationUrls: refinedDirUrls,
-          refinedMergedUrl: hasMasters[i]
-            ? `/api/output/sheets/${prefix}${suf}_all_refined.png?t=${ts}`
-            : null,
-        }
-      }))
+      setSplitSheets(prev => prev.map((sheet, i) => ({
+        ...sheet,
+        refinedMergedUrl: hasMasters[i]
+          ? `/api/output/refined/${prefix}${suffixes[i]}_all_refined.png?t=${ts}`
+          : null,
+      })))
     } else {
       // Single-frame split: data.output = ["{name}_upper_refined.png", "{name}_legs_refined.png"]
       setSplitSheets(prev => prev.map((sheet, i) => ({
@@ -119,15 +111,9 @@ export default function App() {
 
   function handleAnimationRefined(data) {
     const ts = Date.now()
-    // Use server-returned prefix so names match sanitized filenames on disk
     const prefix = data?.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
-    const urls = {}
-    DIRECTIONS.forEach(d => {
-      urls[d] = `/api/output/sheets/${prefix}_${d}_refined.png?t=${ts}`
-    })
-    setRefinedAnimationUrls(urls)
     if (data?.has_master) {
-      setRefinedMergedUrl(`/api/output/sheets/${prefix}_all_refined.png?t=${ts}`)
+      setRefinedMergedUrl(`/api/output/refined/${prefix}_all_refined.png?t=${ts}`)
     }
   }
 

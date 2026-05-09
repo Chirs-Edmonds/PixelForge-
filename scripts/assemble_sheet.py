@@ -64,6 +64,8 @@ def parse_args():
                         help="Output filename prefix. Default: sprite_sheet.")
     parser.add_argument("--merge", action="store_true",
                         help="Animation mode only: also produce a combined master sheet with all 8 directions as rows.")
+    parser.add_argument("--mergeddir", type=str, required=False, default=None,
+                        help="Directory for the merged master sheet. Defaults to --outdir if not set.")
     args = parser.parse_args()
 
     if args.animate and not args.outdir:
@@ -106,7 +108,7 @@ def assemble_single(frames_dir, out_file, size):
     print("[PixelForge] assemble_sheet.py complete.")
 
 
-def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet", merge=False):
+def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet", merge=False, merged_dir=None):
     print(f"[PixelForge] assemble_sheet.py starting (animation mode)")
     print(f"[PixelForge] Frames dir  : {frames_dir}")
     print(f"[PixelForge] Output dir  : {out_dir}")
@@ -146,7 +148,9 @@ def assemble_animation(frames_dir, out_dir, size, prefix="sprite_sheet", merge=F
         master = Image.new("RGBA", (num_frames * size, 8 * size), (0, 0, 0, 0))
         for row, sheet in enumerate(direction_sheets):
             master.paste(sheet, (0, row * size))
-        merged_file = out_dir / f"{prefix}_all.png"
+        merge_target = merged_dir or out_dir
+        merge_target.mkdir(parents=True, exist_ok=True)
+        merged_file = merge_target / f"{prefix}_all.png"
         master.save(str(merged_file), "PNG")
         print(f"[PixelForge]   merged: {merged_file}  ({num_frames * size}x{8 * size}px — 8 directions × {num_frames} frames)")
 
@@ -159,7 +163,8 @@ def main():
     size = args.size
 
     if args.animate:
-        assemble_animation(frames_dir, Path(args.outdir), size, prefix=args.prefix, merge=args.merge)
+        merged_dir = Path(args.mergeddir) if args.mergeddir else None
+        assemble_animation(frames_dir, Path(args.outdir), size, prefix=args.prefix, merge=args.merge, merged_dir=merged_dir)
     else:
         assemble_single(frames_dir, Path(args.outfile), size)
 
