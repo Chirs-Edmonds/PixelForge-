@@ -34,6 +34,7 @@ ASSEMBLE_SCRIPT = PROJECT_ROOT / "scripts" / "assemble_sheet.py"
 OUTPUT_FRAMES   = PROJECT_ROOT / "output" / "frames"
 OUTPUT_SHEETS   = PROJECT_ROOT / "output" / "sheets"
 OUTPUT_MERGED   = PROJECT_ROOT / "output" / "merged"
+OUTPUT_REFINED  = PROJECT_ROOT / "output" / "refined"
 ASSETS_DIR      = PROJECT_ROOT / "assets"
 
 VALID_SIZES = {16, 32, 64, 128, 256}
