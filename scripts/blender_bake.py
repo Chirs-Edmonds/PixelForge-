@@ -485,6 +485,13 @@ def main():
         add_lighting(scene)
     bbox_min, bbox_max, center = load_or_generate_mesh(args, scene)
 
+    # If a PF_Pivot empty exists in the scene, use its world position as the
+    # camera orbit centre instead of the auto-computed bbox midpoint.
+    pivot_obj = scene.objects.get("PF_Pivot")
+    if pivot_obj is not None and pivot_obj.type == 'EMPTY':
+        center = pivot_obj.matrix_world.to_translation()
+        print(f"[PixelForge] PF_Pivot → orbit centre ({center.x:.3f}, {center.y:.3f}, {center.z:.3f})")
+
     if args.hide_collections:
         for col_name in args.hide_collections.split(","):
             col_name = col_name.strip()
