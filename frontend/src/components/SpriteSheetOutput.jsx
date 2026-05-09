@@ -98,9 +98,11 @@ export function SpriteSheetOutput({
 
   // ── Animation mode ───────────────────────────────────────────────────────────
   if (animationUrls) {
-    const isRefined     = !!refinedAnimationUrls
-    const activeUrls    = refinedAnimationUrls || animationUrls
-    const selectedUrl   = activeUrls[selectedDir]
+    const isStripRefined  = !!refinedAnimationUrls   // per-direction strips are refined
+    const isMasterRefined = !!refinedMergedUrl        // master sheet is refined
+    const isRefined       = isStripRefined || isMasterRefined  // header badge
+    const activeUrls      = refinedAnimationUrls || animationUrls
+    const selectedUrl     = activeUrls[selectedDir]
     const activeMergedUrl = refinedMergedUrl || mergedUrl
 
     const inner = (
@@ -126,7 +128,7 @@ export function SpriteSheetOutput({
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 flex gap-6 items-center flex-wrap">
           <div>
             <p className="text-xs text-white/30 mb-2 text-center">
-              {isRefined ? 'Refined' : 'Preview'} — {selectedDir}
+              {isStripRefined ? 'Refined' : 'Preview'} — {selectedDir}
             </p>
             <div
               style={{
@@ -166,7 +168,7 @@ export function SpriteSheetOutput({
         {/* Full strip */}
         <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
           <p className="text-xs text-white/30 mb-2">
-            {isRefined ? 'Refined strip' : 'Full strip'} — {selectedDir} ({frameCount} frames)
+            {isStripRefined ? 'Refined strip' : 'Full strip'} — {selectedDir} ({frameCount} frames)
           </p>
           <img
             src={selectedUrl}
@@ -176,8 +178,8 @@ export function SpriteSheetOutput({
           />
         </div>
 
-        {/* Original strip comparison — only after refinement */}
-        {isRefined && (
+        {/* Original strip comparison — only when per-direction strips are refined */}
+        {isStripRefined && (
           <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
             <p className="text-xs text-white/30 mb-2">Original — {selectedDir}</p>
             <img
@@ -197,7 +199,7 @@ export function SpriteSheetOutput({
               <a
                 key={dir}
                 href={activeUrls[dir]}
-                download={`${spriteName}_${dir}${isRefined ? '_refined' : ''}.png`}
+                download={`${spriteName}_${dir}${isStripRefined ? '_refined' : ''}.png`}
                 className="text-xs bg-white/5 hover:bg-white/10 border border-white/20 text-white/60 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
               >
                 ↓ {dir}
@@ -211,11 +213,11 @@ export function SpriteSheetOutput({
           <div className="mt-4 pt-4 border-t border-white/10">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-white/50 uppercase tracking-wider">
-                Master sheet{isRefined && refinedMergedUrl ? ' — Refined' : ' — all directions'}
+                Master sheet{isMasterRefined ? ' — Refined' : ' — all directions'}
               </p>
               <a
                 href={activeMergedUrl}
-                download={`${spriteName}_all${isRefined && refinedMergedUrl ? '_refined' : ''}.png`}
+                download={`${spriteName}_all${isMasterRefined ? '_refined' : ''}.png`}
                 className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
               >
                 ↓ Download master sheet
@@ -235,8 +237,8 @@ export function SpriteSheetOutput({
                 ))}
               </div>
             </div>
-            {/* Before/after comparison — shown only after refinement */}
-            {isRefined && refinedMergedUrl && mergedUrl && (
+            {/* Before/after comparison — shown when master sheet is refined */}
+            {isMasterRefined && mergedUrl && (
               <div className="mt-3 bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-white/20">Original master sheet</p>
