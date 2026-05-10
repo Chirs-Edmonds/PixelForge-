@@ -45,68 +45,6 @@ _DITHER_MAP = {
 }
 
 
-def _export_to_godot(body_part: str, name: str, godot_export: GodotExportConfig) -> None:
-    project_root = Path(godot_export.godot_project_path)
-    master_dir   = project_root / godot_export.sprite_folder
-    master_dir.mkdir(parents=True, exist_ok=True)
-    config_path  = master_dir / "sprite_config.json"
-
-    base = f"{godot_export.char_type}_{godot_export.weapon}_{godot_export.action}_{godot_export.direction}"
-
-    if body_part == "split":
-        passes = [
-            (f"{name}_upper_all_refined.png", "upper"),
-            (f"{name}_legs_all_refined.png",  "legs"),
-        ]
-    else:
-        target = _BODY_TARGET.get(body_part, "body")
-        passes = [(f"{name}_all_refined.png", target)]
-
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else None
-    except (json.JSONDecodeError, OSError):
-        config = None
-    if config is None:
-        config = {
-            "outputs": {
-                "body":  "res://resources/sprites/player_sprite_frames.tres",
-                "legs":  "res://resources/sprites/player_legs_sprite_frames.tres",
-                "upper": "res://resources/sprites/player_upper_sprite_frames.tres",
-            },
-            "animations": [],
-        }
-
-    for refined_filename, target in passes:
-        src = OUTPUT_REFINED / refined_filename
-        if not src.exists():
-            print(f"[PixelForge→Godot] WARNING: refined file not found: {src}")
-            continue
-
-        with Image.open(src) as img:
-            sprite_size = img.size[1] // 8
-
-        suffix = _BODY_SUFFIX[target]
-        master_filename = f"{base}{suffix}_master.png"
-        shutil.copy2(src, master_dir / master_filename)
-        print(f"[PixelForge→Godot] {refined_filename} → {master_filename}")
-
-        new_entry = {
-            "name": base, "target": target, "file": master_filename,
-            "fps": godot_export.fps, "loop": godot_export.loop,
-            "frame_size": sprite_size, "row_order": "north_first",
-        }
-        animations = config.setdefault("animations", [])
-        for i, entry in enumerate(animations):
-            if entry.get("name") == base and entry.get("target") == target:
-                animations[i] = new_entry
-                break
-        else:
-            animations.append(new_entry)
-
-    config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"[PixelForge→Godot] Updated {config_path}")
-
-
 @router.get("/check-esrgan")
 async def check_esrgan():
     # Upscale is now pure-Pillow nearest-neighbour — no external binary required.
@@ -216,6 +154,68 @@ def _call_refine(req: RefineRequest, src: Path, dst: Path) -> None:
         outline_color=req.outline_color,
         posterize_bits=req.posterize_bits,
     )
+
+
+def _export_to_godot(body_part: str, name: str, godot_export: GodotExportConfig) -> None:
+    project_root = Path(godot_export.godot_project_path)
+    master_dir   = project_root / godot_export.sprite_folder
+    master_dir.mkdir(parents=True, exist_ok=True)
+    config_path  = master_dir / "sprite_config.json"
+
+    base = f"{godot_export.char_type}_{godot_export.weapon}_{godot_export.action}_{godot_export.direction}"
+
+    if body_part == "split":
+        passes = [
+            (f"{name}_upper_all_refined.png", "upper"),
+            (f"{name}_legs_all_refined.png",  "legs"),
+        ]
+    else:
+        target = _BODY_TARGET.get(body_part, "body")
+        passes = [(f"{name}_all_refined.png", target)]
+
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else None
+    except (json.JSONDecodeError, OSError):
+        config = None
+    if config is None:
+        config = {
+            "outputs": {
+                "body":  "res://resources/sprites/player_sprite_frames.tres",
+                "legs":  "res://resources/sprites/player_legs_sprite_frames.tres",
+                "upper": "res://resources/sprites/player_upper_sprite_frames.tres",
+            },
+            "animations": [],
+        }
+
+    for refined_filename, target in passes:
+        src = OUTPUT_REFINED / refined_filename
+        if not src.exists():
+            print(f"[PixelForge→Godot] WARNING: refined file not found: {src}")
+            continue
+
+        with Image.open(src) as img:
+            sprite_size = img.size[1] // 8
+
+        suffix = _BODY_SUFFIX[target]
+        master_filename = f"{base}{suffix}_master.png"
+        shutil.copy2(src, master_dir / master_filename)
+        print(f"[PixelForge→Godot] {refined_filename} → {master_filename}")
+
+        new_entry = {
+            "name": base, "target": target, "file": master_filename,
+            "fps": godot_export.fps, "loop": godot_export.loop,
+            "frame_size": sprite_size, "row_order": "north_first",
+        }
+        animations = config.setdefault("animations", [])
+        for i, entry in enumerate(animations):
+            if entry.get("name") == base and entry.get("target") == target:
+                animations[i] = new_entry
+                break
+        else:
+            animations.append(new_entry)
+
+    config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[PixelForge→Godot] Updated {config_path}")
 
 
 @router.post("/refine")
