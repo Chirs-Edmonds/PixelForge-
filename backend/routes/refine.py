@@ -9,7 +9,9 @@ Refine logic runs in-process via Pillow (no subprocess). Pillow must be installe
 the same Python environment as uvicorn: py -3.12 -m pip install Pillow
 """
 
+import json
 import re
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -33,6 +35,9 @@ OUTPUT_REFINED = PROJECT_ROOT / "output" / "refined"
 DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 _SAFE_NAME = re.compile(r'[^a-zA-Z0-9_-]')
 
+_BODY_TARGET = {"full": "body", "upper": "upper", "lower": "legs"}
+_BODY_SUFFIX = {"body": "", "upper": "_Upper", "legs": "_Lower"}
+
 _DITHER_MAP = {
     "floyd": Image.Dither.FLOYDSTEINBERG,
     "bayer": getattr(Image.Dither, "ORDERED", Image.Dither.FLOYDSTEINBERG),
@@ -40,10 +45,83 @@ _DITHER_MAP = {
 }
 
 
+def _export_to_godot(body_part: str, name: str, godot_export: GodotExportConfig) -> None:
+    project_root = Path(godot_export.godot_project_path)
+    master_dir   = project_root / godot_export.sprite_folder
+    master_dir.mkdir(parents=True, exist_ok=True)
+    config_path  = master_dir / "sprite_config.json"
+
+    base = f"{godot_export.char_type}_{godot_export.weapon}_{godot_export.action}_{godot_export.direction}"
+
+    if body_part == "split":
+        passes = [
+            (f"{name}_upper_all_refined.png", "upper"),
+            (f"{name}_legs_all_refined.png",  "legs"),
+        ]
+    else:
+        target = _BODY_TARGET.get(body_part, "body")
+        passes = [(f"{name}_all_refined.png", target)]
+
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else None
+    except (json.JSONDecodeError, OSError):
+        config = None
+    if config is None:
+        config = {
+            "outputs": {
+                "body":  "res://resources/sprites/player_sprite_frames.tres",
+                "legs":  "res://resources/sprites/player_legs_sprite_frames.tres",
+                "upper": "res://resources/sprites/player_upper_sprite_frames.tres",
+            },
+            "animations": [],
+        }
+
+    for refined_filename, target in passes:
+        src = OUTPUT_REFINED / refined_filename
+        if not src.exists():
+            print(f"[PixelForge→Godot] WARNING: refined file not found: {src}")
+            continue
+
+        with Image.open(src) as img:
+            sprite_size = img.size[1] // 8
+
+        suffix = _BODY_SUFFIX[target]
+        master_filename = f"{base}{suffix}_master.png"
+        shutil.copy2(src, master_dir / master_filename)
+        print(f"[PixelForge→Godot] {refined_filename} → {master_filename}")
+
+        new_entry = {
+            "name": base, "target": target, "file": master_filename,
+            "fps": godot_export.fps, "loop": godot_export.loop,
+            "frame_size": sprite_size, "row_order": "north_first",
+        }
+        animations = config.setdefault("animations", [])
+        for i, entry in enumerate(animations):
+            if entry.get("name") == base and entry.get("target") == target:
+                animations[i] = new_entry
+                break
+        else:
+            animations.append(new_entry)
+
+    config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[PixelForge→Godot] Updated {config_path}")
+
+
 @router.get("/check-esrgan")
 async def check_esrgan():
     # Upscale is now pure-Pillow nearest-neighbour — no external binary required.
     return {"available": True}
+
+
+class GodotExportConfig(BaseModel):
+    godot_project_path: str
+    sprite_folder: str = "assets/sprites/player/master"
+    char_type: str = "Char"
+    weapon: str = "None"
+    action: str
+    direction: str = "None"
+    fps: float = 12.0
+    loop: bool = False
 
 
 class RefineRequest(BaseModel):
@@ -57,6 +135,7 @@ class RefineRequest(BaseModel):
     is_animation:   bool = False
     name:           str  = "sprite_sheet"
     body_part:      str  = "full"
+    godot_export:   GodotExportConfig | None = None
 
 
 def _refine_image(
@@ -150,6 +229,12 @@ async def run_refine(req: RefineRequest):
         raise HTTPException(400, "posterize_bits must be 0 (skip), 2, 3, or 4.")
     if not (1 <= req.alpha_cutoff <= 254):
         raise HTTPException(400, "alpha_cutoff must be between 1 and 254.")
+    if req.godot_export is not None:
+        if not req.is_animation:
+            raise HTTPException(400, "Godot export only supports animation mode.")
+        gp = Path(req.godot_export.godot_project_path)
+        if not gp.is_absolute() or not gp.is_dir():
+            raise HTTPException(400, f"Godot project path invalid: {gp}")
 
     # Sanitize name the same way render.py does — files on disk use the safe version.
     name = _SAFE_NAME.sub('_', req.name).strip('_') or 'sprite_sheet'
@@ -182,6 +267,12 @@ async def run_refine(req: RefineRequest):
             if failed:
                 raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
 
+            if req.godot_export is not None:
+                try:
+                    _export_to_godot(req.body_part, name, req.godot_export)
+                except Exception as e:
+                    print(f"[PixelForge→Godot] WARNING: export failed: {e}")
+
             return {
                 "output":           f"sheets/{name}",
                 "is_animation":     True,
@@ -201,6 +292,12 @@ async def run_refine(req: RefineRequest):
             _call_refine(req, master_src, master_dst)
         except Exception as e:
             raise HTTPException(500, f"Refinement failed: {e}")
+
+        if req.godot_export is not None:
+            try:
+                _export_to_godot(req.body_part, name, req.godot_export)
+            except Exception as e:
+                print(f"[PixelForge→Godot] WARNING: export failed: {e}")
 
         return {"output": f"sheets/{name}", "is_animation": True, "has_master": True}
 
