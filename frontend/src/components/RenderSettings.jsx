@@ -14,6 +14,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [bodyPart, setBodyPart] = useState('full')
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
+  const [supersample, setSupersample] = useState(1)
   const [blendActions, setBlendActions] = useState([])   // [{name, frame_start, frame_end}]
   const [selectedAction, setSelectedAction] = useState('')
   const [loadingActions, setLoadingActions] = useState(false)
@@ -77,6 +78,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
     try {
       const body = {
         sprite_size: spriteSize,
+        supersample,
         mesh_path: meshFilename || null,
         name: outputName.trim() || 'sprite_sheet',
         output_dir: outputDir.trim() || null,
@@ -96,7 +98,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`)
-      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, name: outputName.trim() || 'sprite_sheet', mergeSheets: isAnimation && mergeSheets, bodyPart })
+      onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, supersample, name: outputName.trim() || 'sprite_sheet', mergeSheets: isAnimation && mergeSheets, bodyPart })
     } catch (e) {
       // Network errors (backend not running) show as "Failed to fetch"
       const msg = e.message === 'Failed to fetch'
@@ -135,6 +137,31 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
         <p className="text-xs text-white/30 mt-2">
           Renders at {spriteSize}×{spriteSize}px. Use larger sizes for higher detail.
         </p>
+      </div>
+
+      {/* Super-sampling */}
+      <div className="mb-4">
+        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Super-sampling</p>
+        <div className="flex gap-2">
+          {[1, 2, 4].map(n => (
+            <button
+              key={n}
+              onClick={() => setSupersample(n)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                supersample === n
+                  ? 'bg-violet-600 border-violet-500 text-white'
+                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
+              }`}
+            >
+              {n === 1 ? 'Off' : `${n}×`}
+            </button>
+          ))}
+        </div>
+        {supersample > 1 && (
+          <p className="text-xs text-white/30 mt-2">
+            Blender renders at {spriteSize * supersample}px, assembled to {spriteSize}px — better quality for thin geometry.
+          </p>
+        )}
       </div>
 
       {/* Action selector — .blend files only */}
