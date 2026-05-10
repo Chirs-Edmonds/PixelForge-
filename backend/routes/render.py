@@ -117,12 +117,15 @@ class RenderRequest(BaseModel):
     merge_sheets: bool = False        # animation only: also produce a combined 8-row master sheet
     body_part: str = "full"           # "full" | "upper" | "lower" | "split"
     action_name: str | None = None    # .blend only: name of action to render
+    supersample: int = 1              # 1 | 2 | 4 — Blender renders at sprite_size × supersample
 
 
 @router.post("/render")
 async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     if req.sprite_size not in VALID_SIZES:
         raise HTTPException(400, f"sprite_size must be one of {sorted(VALID_SIZES)}.")
+    if req.supersample not in (1, 2, 4):
+        raise HTTPException(400, "supersample must be 1, 2, or 4.")
 
     if req.mesh_path:
         mesh_abs = ASSETS_DIR / req.mesh_path
@@ -149,7 +152,7 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     create_job(job_id)
     background_tasks.add_task(
         _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
-        safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name
+        safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name, req.supersample
     )
     return {"job_id": job_id}
 
@@ -201,9 +204,10 @@ def _run_render(
     merge_sheets: bool = False,
     body_part: str = "full",
     action_name: str | None = None,
+    supersample: int = 1,
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part, action_name)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part, action_name, supersample)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
@@ -268,8 +272,9 @@ def _run_render_inner(
     merge_sheets: bool = False,
     body_part: str = "full",
     action_name: str | None = None,
+    supersample: int = 1,
 ) -> None:
-    render_size = sprite_size
+    render_size = sprite_size * supersample
     is_animation = (
         frame_start is not None
         and frame_end is not None
