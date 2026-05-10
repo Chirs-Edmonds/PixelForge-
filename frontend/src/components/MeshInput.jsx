@@ -37,8 +37,12 @@ export function MeshInput({ onMeshReady }) {
     form.append('file', file)
     try {
       const res = await fetch('/api/upload-mesh', { method: 'POST', body: form })
+      if (!res.ok) {
+        let detail = 'Upload failed'
+        try { detail = (await res.json()).detail || detail } catch { /* empty body */ }
+        throw new Error(detail)
+      }
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Upload failed')
       setUploadedFile(data.filename)
       onMeshReady(data.filename)
     } catch (e) {
@@ -58,8 +62,12 @@ export function MeshInput({ onMeshReady }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: prompt.trim(), outfile: 'generated.glb' }),
       })
+      if (!res.ok) {
+        let detail = 'Request failed'
+        try { detail = (await res.json()).detail || detail } catch { /* empty body */ }
+        throw new Error(detail)
+      }
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Request failed')
       setTripoJobId(data.job_id)
     } catch (e) {
       setTripoError(e.message)
