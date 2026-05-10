@@ -1,5 +1,9 @@
 import { useState } from 'react'
 
+const LS_GODOT_ENABLED       = 'pixelforge_godot_enabled'
+const LS_GODOT_PROJECT_PATH  = 'pixelforge_godot_project_path'
+const LS_GODOT_SPRITE_FOLDER = 'pixelforge_godot_sprite_folder'
+
 const COLOR_OPTIONS = [
   { value: 0,  label: 'Off' },
   { value: 8,  label: '8' },
@@ -50,10 +54,29 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
   const [error, setError]               = useState(null)
   const [success, setSuccess]           = useState(false)
 
+  const [godotEnabled,      setGodotEnabled]      = useState(() => localStorage.getItem(LS_GODOT_ENABLED) === 'true')
+  const [godotProjectPath,  setGodotProjectPath]  = useState(() => localStorage.getItem(LS_GODOT_PROJECT_PATH) || '')
+  const [godotSpriteFolder, setGodotSpriteFolder] = useState(() => localStorage.getItem(LS_GODOT_SPRITE_FOLDER) || 'assets/sprites/player/master')
+  const [godotCharType,     setGodotCharType]      = useState('Char')
+  const [godotWeapon,       setGodotWeapon]        = useState('')
+  const [godotAction,       setGodotAction]        = useState('')
+  const [godotDirection,    setGodotDirection]      = useState('')
+  const [godotFps,          setGodotFps]           = useState(12)
+  const [godotLoop,         setGodotLoop]          = useState(false)
+
   const nothingToDo = !upscale && colors === 0 && !outline && posterizeBits === 0
   const isAnimation = !!animConfig?.isAnimation
   const isSplit     = animConfig?.bodyPart === 'split'
   const needsMerge  = isAnimation && !animConfig?.mergeSheets
+
+  function godotPreviewFilenames() {
+    const bp = animConfig?.bodyPart || 'full'
+    const base = [godotCharType, godotWeapon, godotAction, godotDirection]
+      .map(s => s.trim()).filter(Boolean).join('_') || '?'
+    if (bp === 'split') return [`${base}_Upper_master.png`, `${base}_Lower_master.png`]
+    const suffix = { full: '', upper: '_Upper', lower: '_Lower' }[bp] ?? ''
+    return [`${base}${suffix}_master.png`]
+  }
 
   async function handleRefine() {
     setError(null)
@@ -72,6 +95,20 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
         body_part: animConfig?.bodyPart  || 'full',
       }
       if (isAnimation) body.is_animation = true
+      if (isAnimation && godotEnabled) {
+        if (!godotProjectPath.trim()) throw new Error('Godot export: enter the Godot project path.')
+        if (!godotAction.trim())      throw new Error('Godot export: enter an Action name.')
+        body.godot_export = {
+          godot_project_path: godotProjectPath.trim(),
+          sprite_folder: godotSpriteFolder.trim() || 'assets/sprites/player/master',
+          char_type:  godotCharType.trim()  || 'Char',
+          weapon:     godotWeapon.trim()    || 'None',
+          action:     godotAction.trim(),
+          direction:  godotDirection.trim() || 'None',
+          fps: godotFps,
+          loop: godotLoop,
+        }
+      }
       const res = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,6 +242,76 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
           </div>
         )}
       </div>
+
+      {/* Godot export — animation mode only */}
+      {isAnimation && (
+        <div className="pf-group">
+          <Toggle
+            on={godotEnabled}
+            onChange={v => { setGodotEnabled(v); localStorage.setItem(LS_GODOT_ENABLED, String(v)) }}
+            label="Export to Godot after refine"
+          />
+          {godotEnabled && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                className="pf-input pf-input-mono"
+                style={{ fontSize: '0.72em' }}
+                placeholder="C:\pvp-game (Godot project root)"
+                value={godotProjectPath}
+                onChange={e => { setGodotProjectPath(e.target.value); localStorage.setItem(LS_GODOT_PROJECT_PATH, e.target.value) }}
+              />
+              <input
+                className="pf-input pf-input-mono"
+                style={{ fontSize: '0.72em' }}
+                placeholder="assets/sprites/player/master"
+                value={godotSpriteFolder}
+                onChange={e => { setGodotSpriteFolder(e.target.value); localStorage.setItem(LS_GODOT_SPRITE_FOLDER, e.target.value) }}
+              />
+              <span className="eyebrow" style={{ marginBottom: 2 }}>Filename components</span>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <div>
+                  <span className="field-hint">Type</span>
+                  <input className="pf-input" placeholder="Char"
+                    value={godotCharType} onChange={e => setGodotCharType(e.target.value)} />
+                </div>
+                <div>
+                  <span className="field-hint">Weapon</span>
+                  <input className="pf-input" placeholder="Sword"
+                    value={godotWeapon} onChange={e => setGodotWeapon(e.target.value)} />
+                </div>
+                <div>
+                  <span className="field-hint">Action</span>
+                  <input className="pf-input" placeholder="Attack"
+                    value={godotAction} onChange={e => setGodotAction(e.target.value)} />
+                </div>
+                <div>
+                  <span className="field-hint">Direction</span>
+                  <input className="pf-input" placeholder="Right"
+                    value={godotDirection} onChange={e => setGodotDirection(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 2 }}>
+                <label style={{ fontSize: '0.82em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  FPS
+                  <input
+                    type="number" min={1} max={60}
+                    className="pf-input" style={{ width: 52 }}
+                    value={godotFps}
+                    onChange={e => setGodotFps(Number(e.target.value))}
+                  />
+                </label>
+                <Toggle on={godotLoop} onChange={setGodotLoop} label="Loop" />
+              </div>
+              <span className="field-hint">
+                Will write:{' '}
+                {godotPreviewFilenames().map(f => (
+                  <code key={f} style={{ marginRight: 6 }}>{f}</code>
+                ))}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {needsMerge && (
         <p style={{ fontSize: '0.75em', color: 'var(--pf-warn)', margin: '0 0 10px' }}>

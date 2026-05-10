@@ -49,16 +49,27 @@ _ALLOWED_MESH_EXTENSIONS = (".glb", ".gltf", ".blend", ".fbx", ".obj")
 
 @router.post("/upload-mesh")
 async def upload_mesh(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(_ALLOWED_MESH_EXTENSIONS):
+    if not file.filename or not file.filename.lower().endswith(_ALLOWED_MESH_EXTENSIONS):
         raise HTTPException(400, "Supported formats: .glb, .gltf, .blend, .fbx, .obj")
 
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = ASSETS_DIR / file.filename
-    async with aiofiles.open(dest, "wb") as out:
-        content = await file.read()
-        await out.write(content)
+    # Strip any path separators the browser might include in the filename
+    safe_filename = Path(file.filename).name
+    if not safe_filename:
+        raise HTTPException(400, "Invalid filename.")
 
-    return {"filename": file.filename}
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = ASSETS_DIR / safe_filename
+    try:
+        async with aiofiles.open(dest, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 MB chunks — avoids OOM on large meshes
+                if not chunk:
+                    break
+                await out.write(chunk)
+    except OSError as e:
+        raise HTTPException(500, f"Failed to save file: {e}")
+
+    return {"filename": safe_filename}
 
 
 # ---------------------------------------------------------------------------
