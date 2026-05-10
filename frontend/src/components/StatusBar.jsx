@@ -7,7 +7,6 @@ export function StatusBar({ jobId, onDone, onError }) {
   const isDone  = status?.status === 'done'
   const isError = status?.status === 'error'
 
-  // Call callbacks in effects — never during render
   useEffect(() => {
     if (isDone && onDone) onDone(status)
   }, [isDone]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -18,20 +17,31 @@ export function StatusBar({ jobId, onDone, onError }) {
 
   if (!jobId || !status) return null
 
+  const color = isError ? 'var(--pf-err)' : isDone ? 'var(--pf-good)' : 'var(--pf-accent)'
+  const bg    = isError ? 'rgba(248,113,113,0.08)' : isDone ? 'rgba(52,211,153,0.08)' : 'rgba(139,92,246,0.08)'
+  const bd    = isError ? 'rgba(248,113,113,0.25)' : isDone ? 'rgba(52,211,153,0.25)' : 'rgba(139,92,246,0.25)'
+
   return (
-    <div className={`rounded-lg px-4 py-3 text-sm flex items-center gap-3 ${
-      isError
-        ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-        : isDone
-        ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-        : 'bg-violet-500/10 border border-violet-500/30 text-violet-300'
-    }`}>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '7px 10px',
+      borderRadius: 'var(--pf-radius)',
+      background: bg,
+      border: `1px solid ${bd}`,
+      fontSize: '0.8em',
+      color,
+    }}>
       {!isDone && !isError && (
-        <span className="inline-block w-3 h-3 rounded-full bg-violet-400 animate-pulse shrink-0" />
+        <span style={{
+          display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+          background: color, flexShrink: 0, animation: 'pulse 1.5s ease-in-out infinite',
+        }} />
       )}
-      {isDone && <span className="shrink-0">✓</span>}
-      {isError && <span className="shrink-0">✗</span>}
-      <span>{isError ? (status.error || status.progress_msg || 'An error occurred.') : status.progress_msg}</span>
+      {isDone  && <span style={{ flexShrink: 0 }}>✓</span>}
+      {isError && <span style={{ flexShrink: 0 }}>✗</span>}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {isError ? (status.error || status.progress_msg || 'An error occurred.') : status.progress_msg}
+      </span>
     </div>
   )
 }

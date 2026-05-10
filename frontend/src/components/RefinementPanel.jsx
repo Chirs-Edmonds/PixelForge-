@@ -10,16 +10,33 @@ const COLOR_OPTIONS = [
 
 const DITHER_OPTIONS = [
   { value: 'none',  label: 'None' },
-  { value: 'floyd', label: 'Floyd-Steinberg' },
+  { value: 'floyd', label: 'Floyd-S' },
   { value: 'bayer', label: 'Bayer' },
 ]
 
 const POSTERIZE_OPTIONS = [
   { value: 0, label: 'Off' },
-  { value: 2, label: '4 colours' },
-  { value: 3, label: '8 colours' },
-  { value: 4, label: '16 colours' },
+  { value: 2, label: '4 col' },
+  { value: 3, label: '8 col' },
+  { value: 4, label: '16 col' },
 ]
+
+function Toggle({ on, onChange, label, hint }) {
+  return (
+    <div
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}
+      onClick={() => onChange(!on)}
+    >
+      <div className={`pf-toggle-track${on ? ' on' : ''}`} style={{ marginTop: 1 }}>
+        <div className="pf-toggle-thumb" />
+      </div>
+      <div>
+        <span style={{ fontSize: '0.85em' }}>{label}</span>
+        {hint && <span className="field-hint" style={{ marginTop: 2 }}>{hint}</span>}
+      </div>
+    </div>
+  )
+}
 
 export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSplitRefined, animConfig }) {
   const [upscale, setUpscale]           = useState(false)
@@ -78,49 +95,49 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
   }
 
   return (
-    <div className={`bg-white/5 border border-white/10 rounded-xl p-5 transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
-      <h2 className="text-lg font-semibold text-white mb-4">3. Refinement</h2>
+    <div
+      className="panel"
+      style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}
+    >
+      <span className="eyebrow">Refinement</span>
 
-      {/* Quality pass toggle */}
-      <div className="flex items-center gap-3 mb-4 cursor-pointer" onClick={() => setUpscale(v => !v)}>
-        <div className={`w-10 h-5 rounded-full transition-colors shrink-0 ${upscale ? 'bg-violet-600' : 'bg-white/20'}`}>
-          <div className={`w-4 h-4 rounded-full bg-white mt-0.5 transition-transform ${upscale ? 'translate-x-5' : 'translate-x-0.5'}`} />
-        </div>
-        <div>
-          <span className="text-sm text-white">Pixel art refine</span>
-          <p className="text-xs text-white/40">Internal ×4 pass — sharpens edges and flattens palette; output stays at render size</p>
-        </div>
+      {/* Pixel art refine toggle */}
+      <div className="pf-group">
+        <Toggle
+          on={upscale}
+          onChange={setUpscale}
+          label="Pixel art ×4 upscale"
+          hint="Nearest-neighbour — preserves hard pixel edges"
+        />
       </div>
 
-      {/* Alpha cutoff slider */}
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-1">
-          <p className="text-xs text-white/50 uppercase tracking-wider">Alpha cutoff</p>
-          <span className="text-xs text-white/60 tabular-nums">{alphaCutoff}</span>
+      {/* Alpha cutoff */}
+      <div className="pf-group">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span className="eyebrow" style={{ marginBottom: 0 }}>Alpha cutoff</span>
+          <span style={{ fontSize: '0.72em', color: 'var(--pf-mute)', fontVariantNumeric: 'tabular-nums' }}>
+            {alphaCutoff}
+          </span>
         </div>
         <input
           type="range"
           min={1} max={64} step={1}
           value={alphaCutoff}
           onChange={e => setAlphaCutoff(Number(e.target.value))}
-          className="w-full accent-violet-500"
+          style={{ width: '100%', accentColor: 'var(--pf-accent)' }}
         />
-        <p className="text-xs text-white/30 mt-1">Lower = keep more thin edges (sword blades); higher = cleaner but may drop fine detail</p>
+        <span className="field-hint">Lower = keep more thin edges; higher = cleaner but may drop fine detail</span>
       </div>
 
       {/* Posterize */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Posterize</p>
-        <div className="flex gap-2 flex-wrap">
+      <div className="pf-group">
+        <span className="eyebrow">Posterize</span>
+        <div className="seg seg-full">
           {POSTERIZE_OPTIONS.map(opt => (
             <button
               key={opt.value}
               onClick={() => setPosterizeBits(opt.value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                posterizeBits === opt.value
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
+              className={`seg-item${posterizeBits === opt.value ? ' active' : ''}`}
             >
               {opt.label}
             </button>
@@ -129,18 +146,14 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
       </div>
 
       {/* Palette colors */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Palette colors</p>
-        <div className="flex gap-2 flex-wrap">
+      <div className="pf-group">
+        <span className="eyebrow">Palette colors</span>
+        <div className="seg seg-full">
           {COLOR_OPTIONS.map(opt => (
             <button
               key={opt.value}
               onClick={() => setColors(opt.value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                colors === opt.value
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
+              className={`seg-item${colors === opt.value ? ' active' : ''}`}
             >
               {opt.label}
             </button>
@@ -148,20 +161,16 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
         </div>
       </div>
 
-      {/* Dither mode — only shown when colors > 0 */}
+      {/* Dither mode — only when colors > 0 */}
       {colors > 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Dithering</p>
-          <div className="flex gap-2">
+        <div className="pf-group">
+          <span className="eyebrow">Dithering</span>
+          <div className="seg seg-full">
             {DITHER_OPTIONS.map(opt => (
               <button
                 key={opt.value}
                 onClick={() => setDitherMode(opt.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  ditherMode === opt.value
-                    ? 'bg-violet-600 border-violet-500 text-white'
-                    : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-                }`}
+                className={`seg-item${ditherMode === opt.value ? ' active' : ''}`}
               >
                 {opt.label}
               </button>
@@ -171,43 +180,53 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
       )}
 
       {/* Outline */}
-      <div className="mb-4">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setOutline(v => !v)}>
-          <div className={`w-10 h-5 rounded-full transition-colors shrink-0 ${outline ? 'bg-violet-600' : 'bg-white/20'}`}>
-            <div className={`w-4 h-4 rounded-full bg-white mt-0.5 transition-transform ${outline ? 'translate-x-5' : 'translate-x-0.5'}`} />
-          </div>
-          <span className="text-sm text-white">Pixel outline</span>
-        </div>
+      <div className="pf-group">
+        <Toggle
+          on={outline}
+          onChange={setOutline}
+          label="Pixel outline"
+        />
         {outline && (
-          <div className="flex items-center gap-3 mt-2 ml-[52px]">
-            <label className="text-xs text-white/50">Colour</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, marginLeft: 46 }}>
+            <span style={{ fontSize: '0.72em', color: 'var(--pf-mute)' }}>Colour</span>
             <input
               type="color"
               value={outlineColor}
               onChange={e => setOutlineColor(e.target.value)}
               onClick={e => e.stopPropagation()}
-              className="w-8 h-8 rounded cursor-pointer border border-white/20 bg-transparent"
+              style={{
+                width: 28, height: 28, borderRadius: 5, cursor: 'pointer',
+                border: '1px solid var(--pf-border)', background: 'transparent', padding: 2,
+              }}
             />
-            <span className="text-xs text-white/40">{outlineColor}</span>
+            <span style={{ fontSize: '0.72em', color: 'var(--pf-dim)', fontFamily: "'Geist Mono', monospace" }}>
+              {outlineColor}
+            </span>
           </div>
         )}
       </div>
 
       {needsMerge && (
-        <p className="text-xs text-amber-400 mb-3">
+        <p style={{ fontSize: '0.75em', color: 'var(--pf-warn)', margin: '0 0 10px' }}>
           Animation refinement requires "Merge 8-direction" to be enabled. Re-render with merge checked.
         </p>
       )}
-      {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
-      {success && <p className="text-xs text-green-400 mb-3">Refinement complete ✓</p>}
+      {error && (
+        <p style={{ fontSize: '0.75em', color: 'var(--pf-err)', margin: '0 0 10px' }}>{error}</p>
+      )}
+      {success && (
+        <p style={{ fontSize: '0.75em', color: 'var(--pf-good)', margin: '0 0 10px' }}>
+          Refinement complete ✓
+        </p>
+      )}
 
       <button
         onClick={handleRefine}
         disabled={running || nothingToDo || disabled || needsMerge}
-        className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+        className="btn-primary"
       >
         {running
-          ? (isSplit && isAnimation ? 'Refining split sheets...' : isSplit ? 'Refining both sheets...' : isAnimation ? 'Refining all sheets...' : 'Refining...')
+          ? (isSplit && isAnimation ? 'Refining split sheets…' : isSplit ? 'Refining both sheets…' : isAnimation ? 'Refining all sheets…' : 'Refining…')
           : nothingToDo
             ? 'Enable a refinement option'
             : isSplit && isAnimation ? 'Refine split sheets' : isSplit ? 'Refine both sheets' : isAnimation ? 'Refine all sheets' : 'Refine'}

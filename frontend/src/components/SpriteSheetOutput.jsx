@@ -2,49 +2,106 @@ import { useState, useEffect, useRef } from 'react'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-// ── Split-body tab wrapper ───────────────────────────────────────────────────
+// Direction compass layout: 3×3 grid, centre is null
+const WHEEL = [
+  ['NW', 'N',  'NE'],
+  ['W',  null, 'E' ],
+  ['SW', 'S',  'SE'],
+]
+
+function DirWheel({ selectedDir, onSelect }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 34px)', gap: 3 }}>
+      {WHEEL.flat().map((dir, i) =>
+        dir === null ? (
+          <div key={i} />
+        ) : (
+          <button
+            key={dir}
+            onClick={() => onSelect(dir)}
+            style={{
+              width: 34, height: 34,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid',
+              borderColor: selectedDir === dir ? 'var(--pf-accent)' : 'var(--pf-border)',
+              background: selectedDir === dir ? 'var(--pf-accent-dim)' : 'var(--pf-panel-2)',
+              color: selectedDir === dir ? 'var(--pf-accent)' : 'var(--pf-mute)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: '0.65em',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              transition: 'all 0.15s',
+            }}
+          >
+            {dir}
+          </button>
+        )
+      )}
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div style={{
+      flex: 1, display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      color: 'var(--pf-dim)', padding: 32, textAlign: 'center',
+    }}>
+      <div style={{
+        width: 48, height: 48, borderRadius: 12,
+        border: '1px dashed var(--pf-border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        marginBottom: 14, fontSize: 22,
+      }}>
+        ⬡
+      </div>
+      <p style={{ margin: '0 0 6px', fontSize: '0.85em', color: 'var(--pf-mute)' }}>
+        No output yet
+      </p>
+      <p style={{ margin: 0, fontSize: '0.72em', color: 'var(--pf-dim)' }}>
+        Configure a mesh and click Render
+      </p>
+    </div>
+  )
+}
+
+// ── Split-body wrapper ───────────────────────────────────────────────────────
 function SplitSheetsOutput({ splitSheets, frameCount, spriteSize }) {
   const [activeTab, setActiveTab] = useState(0)
   const sheet = splitSheets[activeTab]
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">4. Output</h2>
-        <span className="text-xs text-white/40">Split body — 2 sheets</span>
-      </div>
-
-      {/* Tab buttons */}
-      <div className="flex gap-2 mb-4">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Split tab selector */}
+      <div className="pf-tabs">
         {splitSheets.map((s, i) => (
           <button
             key={s.label}
             onClick={() => setActiveTab(i)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              activeTab === i
-                ? 'bg-violet-600 border-violet-500 text-white'
-                : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-            }`}
+            className={`pf-tab${activeTab === i ? ' active' : ''}`}
           >
             {s.label}
           </button>
         ))}
       </div>
 
-      {/* Render active sheet — _noChrome suppresses the outer card */}
-      <SpriteSheetOutput
-        key={sheet.label}
-        spriteSheetUrl={sheet.spriteSheetUrl}
-        refinedUrl={sheet.refinedUrl}
-        animationUrls={sheet.animationUrls}
-        refinedAnimationUrls={sheet.refinedAnimationUrls}
-        mergedUrl={sheet.mergedUrl}
-        refinedMergedUrl={sheet.refinedMergedUrl}
-        frameCount={frameCount}
-        spriteSize={spriteSize}
-        spriteName={sheet.spriteName}
-        _noChrome
-      />
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <SpriteSheetOutput
+          key={sheet.label}
+          spriteSheetUrl={sheet.spriteSheetUrl}
+          refinedUrl={sheet.refinedUrl}
+          animationUrls={sheet.animationUrls}
+          refinedAnimationUrls={sheet.refinedAnimationUrls}
+          mergedUrl={sheet.mergedUrl}
+          refinedMergedUrl={sheet.refinedMergedUrl}
+          frameCount={frameCount}
+          spriteSize={spriteSize}
+          spriteName={sheet.spriteName}
+          _noChrome
+        />
+      </div>
     </div>
   )
 }
@@ -57,12 +114,15 @@ export function SpriteSheetOutput({
   spriteName = 'sprite_sheet',
   mergedUrl, refinedMergedUrl,
   splitSheets,
+  isRendering = false,
   _noChrome = false,
 }) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
   const [fps, setFps] = useState(8)
+  // Start on 'live' for animation, '8dir' for single-frame
+  const [activeTab, setActiveTab] = useState(() => animationUrls ? 'live' : '8dir')
   const intervalRef = useRef(null)
 
   // Playback loop
@@ -75,12 +135,13 @@ export function SpriteSheetOutput({
     return () => clearInterval(intervalRef.current)
   }, [animationUrls, isPlaying, fps, frameCount])
 
-  // Reset when new animation arrives
+  // Reset on new animation
   useEffect(() => {
     if (animationUrls) {
       setSelectedDir('S')
       setCurrentFrame(0)
       setIsPlaying(true)
+      setActiveTab('live')
     }
   }, [animationUrls])
 
@@ -89,288 +150,480 @@ export function SpriteSheetOutput({
     setCurrentFrame(0)
   }, [selectedDir])
 
-  if (!spriteSheetUrl && !refinedUrl && !animationUrls && !splitSheets) return null
+  // ── Empty / split-body ────────────────────────────────────────────────────
+  if (!spriteSheetUrl && !refinedUrl && !animationUrls && !splitSheets) {
+    if (isRendering) {
+      return (
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--pf-mute)', fontSize: '0.85em', gap: 10,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: 'var(--pf-accent)',
+            animation: 'pulse 1.5s ease-in-out infinite',
+            flexShrink: 0,
+          }} />
+          Rendering…
+        </div>
+      )
+    }
+    return <EmptyState />
+  }
 
-  // ── Split-body mode ──────────────────────────────────────────────────────────
   if (splitSheets) {
     return <SplitSheetsOutput splitSheets={splitSheets} frameCount={frameCount} spriteSize={spriteSize} />
   }
 
-  // ── Animation mode ───────────────────────────────────────────────────────────
-  if (animationUrls) {
-    const isStripRefined    = !!refinedAnimationUrls   // per-direction strips are refined
-    const isMasterRefined   = !!refinedMergedUrl        // master sheet is refined
-    const isRefined         = isStripRefined || isMasterRefined  // header badge
-    const activeUrls        = refinedAnimationUrls || animationUrls
-    const selectedUrl       = activeUrls[selectedDir]
-    const activeMergedUrl   = refinedMergedUrl || mergedUrl
-    // When only master is refined: extract the correct direction row from the master sheet
-    // using CSS background-position-y so the preview shows the refined animation.
-    const dirIndex          = DIRECTIONS.indexOf(selectedDir)  // 0–7
-    const useMasterPreview  = isMasterRefined && !isStripRefined
+  // ── Derived values ────────────────────────────────────────────────────────
+  const isStripRefined  = !!refinedAnimationUrls
+  const isMasterRefined = !!refinedMergedUrl
+  const isRefined       = isStripRefined || isMasterRefined || !!refinedUrl
+  const activeUrls      = refinedAnimationUrls || animationUrls
+  const selectedUrl     = activeUrls?.[selectedDir]
+  const activeMergedUrl = refinedMergedUrl || mergedUrl
+  const dirIndex        = DIRECTIONS.indexOf(selectedDir)
+  const useMasterPreview = isMasterRefined && !isStripRefined
 
-    const inner = (
-      <>
-        {/* Direction selector */}
-        <div className="flex gap-1.5 mb-4 flex-wrap">
-          {DIRECTIONS.map(dir => (
-            <button
-              key={dir}
-              onClick={() => setSelectedDir(dir)}
-              className={`px-3 py-1 rounded-lg text-sm font-medium border transition-colors ${
-                selectedDir === dir
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
-            >
-              {dir}
-            </button>
-          ))}
+  const activeSingleUrl = refinedUrl || spriteSheetUrl
+
+  // ── Tab definitions ───────────────────────────────────────────────────────
+  const hasMaster  = !!activeMergedUrl
+  const hasCompare = isRefined && (spriteSheetUrl || animationUrls)
+  const isAnimMode = !!animationUrls
+
+  const tabs = [
+    ...(isAnimMode ? [{ id: 'live',  label: 'Live Preview' }] : []),
+    { id: '8dir',   label: '8-Dir' },
+    ...(hasMaster ? [{ id: 'master', label: 'Master Sheet' }] : []),
+    ...(hasCompare ? [{ id: 'compare', label: 'Compare' }] : []),
+  ]
+
+  // Keep activeTab valid when content changes
+  const validTab = tabs.find(t => t.id === activeTab) ? activeTab : tabs[0]?.id
+
+  // ── Shared preview box size ───────────────────────────────────────────────
+  const previewPx = 192
+
+  // ── Inner content ─────────────────────────────────────────────────────────
+
+  const liveTab = (
+    <div style={{ padding: 'var(--pf-pad)', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      {/* Left: direction wheel + preview */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div>
+          <span className="eyebrow">Direction</span>
+          <DirWheel selectedDir={selectedDir} onSelect={setSelectedDir} />
         </div>
 
-        {/* Preview + playback controls */}
-        <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 flex gap-6 items-center flex-wrap">
-          <div>
-            <p className="text-xs text-white/30 mb-2 text-center">
-              {(isStripRefined || useMasterPreview) ? 'Refined' : 'Preview'} — {selectedDir}
-            </p>
-            <div
-              style={{
-                width: 192,
-                height: 192,
-                borderRadius: 8,
-                backgroundColor: 'rgba(255,255,255,0.03)',
-                imageRendering: 'pixelated',
-                backgroundImage: useMasterPreview
-                  ? `url("${refinedMergedUrl}")`
-                  : `url("${selectedUrl}")`,
-                backgroundSize: useMasterPreview
-                  ? `${frameCount * 192}px ${8 * 192}px`
-                  : `${frameCount * 192}px 192px`,
-                backgroundPosition: useMasterPreview
-                  ? `-${currentFrame * 192}px -${dirIndex * 192}px`
-                  : `-${currentFrame * 192}px 0px`,
-                backgroundRepeat: 'no-repeat',
-              }}
-            />
-            <p className="text-xs text-white/20 mt-1.5 text-center">
-              Frame {currentFrame + 1} / {frameCount}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setIsPlaying(p => !p)}
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-white/20 bg-white/5 text-white/70 hover:text-white hover:border-white/40 transition-colors"
-            >
-              {isPlaying ? '⏸ Pause' : '▶ Play'}
-            </button>
-            <div>
-              <p className="text-xs text-white/40 mb-1">Speed: {fps} fps</p>
-              <input
-                type="range" min={1} max={24} value={fps}
-                onChange={e => setFps(Number(e.target.value))}
-                className="w-28 accent-violet-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Full strip */}
-        <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
-          <p className="text-xs text-white/30 mb-2">
-            {(isStripRefined || useMasterPreview) ? 'Refined strip' : 'Full strip'} — {selectedDir} ({frameCount} frames)
+        <div>
+          <span className="eyebrow" style={{ textAlign: 'center', display: 'block' }}>
+            {useMasterPreview || isStripRefined ? 'Refined' : 'Preview'} — {selectedDir}
+          </span>
+          <div
+            className="pixel-art"
+            style={{
+              width: previewPx, height: previewPx,
+              borderRadius: 8,
+              background: 'var(--pf-panel-2)',
+              backgroundImage: useMasterPreview
+                ? `url("${refinedMergedUrl}")`
+                : `url("${selectedUrl}")`,
+              backgroundSize: useMasterPreview
+                ? `${frameCount * previewPx}px ${8 * previewPx}px`
+                : `${frameCount * previewPx}px ${previewPx}px`,
+              backgroundPosition: useMasterPreview
+                ? `-${currentFrame * previewPx}px -${dirIndex * previewPx}px`
+                : `-${currentFrame * previewPx}px 0px`,
+              backgroundRepeat: 'no-repeat',
+            }}
+          />
+          <p style={{ margin: '6px 0 0', fontSize: '0.72em', color: 'var(--pf-dim)', textAlign: 'center' }}>
+            Frame {currentFrame + 1} / {frameCount}
           </p>
+        </div>
+      </div>
+
+      {/* Right: playback controls */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'center' }}>
+        <button
+          onClick={() => setIsPlaying(p => !p)}
+          style={{
+            padding: '6px 16px',
+            borderRadius: 'var(--pf-radius)',
+            border: '1px solid var(--pf-border)',
+            background: 'var(--pf-panel-2)',
+            color: 'var(--pf-text)',
+            cursor: 'pointer',
+            fontSize: '0.85em',
+            fontFamily: 'inherit',
+            transition: 'border-color 0.15s',
+          }}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
+        <div>
+          <span style={{ fontSize: '0.72em', color: 'var(--pf-mute)', display: 'block', marginBottom: 4 }}>
+            Speed: {fps} fps
+          </span>
+          <input
+            type="range" min={1} max={24} value={fps}
+            onChange={e => setFps(Number(e.target.value))}
+            style={{ width: 120, accentColor: 'var(--pf-accent)' }}
+          />
+        </div>
+      </div>
+
+      {/* Strip preview */}
+      <div style={{ width: '100%' }}>
+        <span className="eyebrow">
+          {useMasterPreview || isStripRefined ? 'Refined strip' : 'Strip'} — {selectedDir} ({frameCount} frames)
+        </span>
+        <div style={{
+          background: 'var(--pf-panel-2)',
+          borderRadius: 'var(--pf-radius)',
+          border: '1px solid var(--pf-border)',
+          padding: 10, overflowX: 'auto',
+        }}>
           {useMasterPreview ? (
-            /* Extract this direction's row from the master refined sheet */
             <div
+              className="pixel-art"
               style={{
-                imageRendering: 'pixelated',
-                height: '64px',
-                width: `${frameCount * 64}px`,
+                height: 64, width: `${frameCount * 64}px`,
                 backgroundImage: `url("${refinedMergedUrl}")`,
                 backgroundSize: `${frameCount * 64}px ${8 * 64}px`,
                 backgroundPosition: `0px -${dirIndex * 64}px`,
                 backgroundRepeat: 'no-repeat',
+                borderRadius: 4,
               }}
-              className="rounded"
             />
           ) : (
             <img
               src={selectedUrl}
-              alt={`Sprite sheet ${selectedDir}`}
-              style={{ imageRendering: 'pixelated', height: '64px', width: 'auto', display: 'block' }}
-              className="rounded"
+              alt={`Strip ${selectedDir}`}
+              className="pixel-art"
+              style={{ height: 64, width: 'auto', display: 'block', borderRadius: 4 }}
             />
           )}
         </div>
+      </div>
+    </div>
+  )
 
-        {/* Original strip comparison — when strips or master-only refinement is active */}
-        {(isStripRefined || useMasterPreview) && (
-          <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
-            <p className="text-xs text-white/30 mb-2">Original — {selectedDir}</p>
-            <img
-              src={animationUrls[selectedDir]}
-              alt={`Original sprite sheet ${selectedDir}`}
-              style={{ imageRendering: 'pixelated', height: '64px', width: 'auto', display: 'block' }}
-              className="rounded opacity-70"
-            />
+  const eightDirTab = (
+    <div style={{ padding: 'var(--pf-pad)' }}>
+      {isAnimMode ? (
+        <>
+          {/* Grid of all 8 directions */}
+          <span className="eyebrow">All directions — frame 1</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {DIRECTIONS.map(dir => {
+              const url = activeUrls?.[dir]
+              return (
+                <div key={dir} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div
+                    className="pixel-art"
+                    style={{
+                      width: 80, height: 80,
+                      background: 'var(--pf-panel-2)',
+                      border: `1px solid ${dir === selectedDir ? 'var(--pf-accent)' : 'var(--pf-border)'}`,
+                      borderRadius: 6, overflow: 'hidden',
+                      backgroundImage: url ? `url("${url}")` : 'none',
+                      backgroundSize: `${frameCount * 80}px 80px`,
+                      backgroundPosition: '0px 0px',
+                      backgroundRepeat: 'no-repeat',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => { setSelectedDir(dir); setActiveTab('live') }}
+                  />
+                  <span style={{ fontSize: '0.65em', color: 'var(--pf-mute)' }}>{dir}</span>
+                </div>
+              )
+            })}
           </div>
-        )}
 
-        {/* Per-direction downloads */}
-        <div>
-          <p className="text-xs text-white/30 mb-2">Download per direction</p>
-          <div className="flex gap-2 flex-wrap">
+          {/* Per-direction downloads */}
+          <span className="eyebrow">Download per direction</span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {DIRECTIONS.map(dir => (
               <a
                 key={dir}
-                href={activeUrls[dir]}
+                href={activeUrls?.[dir]}
                 download={`${spriteName}_${dir}${isStripRefined ? '_refined' : ''}.png`}
-                className="text-xs bg-white/5 hover:bg-white/10 border border-white/20 text-white/60 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+                style={{
+                  fontSize: '0.75em',
+                  background: 'var(--pf-panel-2)',
+                  border: '1px solid var(--pf-border)',
+                  color: 'var(--pf-mute)',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--pf-radius)',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
               >
                 ↓ {dir}
               </a>
             ))}
           </div>
-        </div>
-
-        {/* Merged master sheet */}
-        {activeMergedUrl && (
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-white/50 uppercase tracking-wider">
-                Master sheet{isMasterRefined ? ' — Refined' : ' — all directions'}
-              </p>
-              <a
-                href={activeMergedUrl}
-                download={`${spriteName}_all${isMasterRefined ? '_refined' : ''}.png`}
-                className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-              >
-                ↓ Download master sheet
-              </a>
-            </div>
-            <div className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
-              <p className="text-xs text-white/20 mb-2">8 rows (N → NW) × {frameCount} frames</p>
+        </>
+      ) : (
+        <>
+          {/* Single-frame: show the 8-direction strip */}
+          <span className="eyebrow">8-direction strip</span>
+          <div style={{
+            background: 'var(--pf-panel-2)',
+            borderRadius: 'var(--pf-radius)',
+            border: '1px solid var(--pf-border)',
+            padding: 12, overflowX: 'auto', marginBottom: 10,
+          }}>
+            <div style={{ width: 'max-content', minWidth: '100%' }}>
               <img
-                src={activeMergedUrl}
-                alt="Master sprite sheet"
-                style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block' }}
-                className="rounded"
+                src={activeSingleUrl}
+                alt="Sprite sheet"
+                className="pixel-art"
+                style={{ height: 192, width: 'auto', display: 'block', borderRadius: 4 }}
               />
-              <div className="mt-2 flex flex-col gap-0.5">
-                {DIRECTIONS.map(d => (
-                  <div key={d} className="text-xs text-white/20 leading-none" style={{ height: '8px' }}>{d}</div>
+              <div style={{ display: 'flex', marginTop: 6 }}>
+                {DIRECTIONS.map(dir => (
+                  <div key={dir} style={{ flex: 1, textAlign: 'center', fontSize: '0.65em', color: 'var(--pf-dim)' }}>
+                    {dir}
+                  </div>
                 ))}
               </div>
             </div>
-            {/* Before/after comparison — shown when master sheet is refined */}
-            {isMasterRefined && mergedUrl && (
-              <div className="mt-3 bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-64">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-white/20">Original master sheet</p>
-                  <a
-                    href={mergedUrl}
-                    download={`${spriteName}_all_original.png`}
-                    className="text-xs text-white/30 hover:text-white/60 transition-colors"
-                  >
-                    ↓ original
-                  </a>
-                </div>
-                <img
-                  src={mergedUrl}
-                  alt="Original master sprite sheet"
-                  style={{ imageRendering: 'pixelated', height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block', opacity: 0.7 }}
-                  className="rounded"
-                />
-              </div>
-            )}
           </div>
-        )}
-      </>
-    )
-
-    if (_noChrome) return <div>{inner}</div>
-
-    return (
-      <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-white">4. Output</h2>
-            {isRefined && (
-              <span className="text-xs bg-violet-600/30 border border-violet-500/40 text-violet-300 px-2 py-0.5 rounded-full">
-                Refined
-              </span>
-            )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <a
+              href={activeSingleUrl}
+              download={refinedUrl ? `${spriteName}_refined.png` : `${spriteName}.png`}
+              style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: 'var(--pf-accent)', color: '#fff',
+                padding: '6px 14px', borderRadius: 'var(--pf-radius)',
+                fontSize: '0.8em', textDecoration: 'none', fontWeight: 600,
+              }}
+            >
+              ↓ Download PNG
+            </a>
           </div>
-          <span className="text-xs text-white/40">{frameCount} frames × 8 directions</span>
-        </div>
-        {inner}
-      </div>
-    )
-  }
-
-  // ── Single-frame mode ────────────────────────────────────────────────────────
-  const activeUrl = refinedUrl || spriteSheetUrl
-  const label     = refinedUrl ? 'Refined' : 'Sprite Sheet'
-
-  const singleInner = (
-    <>
-      <div className="bg-[#1a1a2e] rounded-lg p-4 mb-3 overflow-x-auto">
-        <div style={{ width: 'max-content', minWidth: '100%' }}>
-          <img
-            src={activeUrl}
-            alt="Sprite sheet"
-            style={{ imageRendering: 'pixelated', height: '192px', width: 'auto', display: 'block' }}
-            className="rounded"
-          />
-          <div className="flex mt-2">
-            {DIRECTIONS.map(dir => (
-              <div key={dir} className="flex-1 text-center text-xs text-white/30">{dir}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <p className="text-xs text-white/40 text-center">
-        {label} — 8 directions, left to right: {DIRECTIONS.join(', ')}
-      </p>
-      {refinedUrl && spriteSheetUrl && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <p className="text-xs text-white/40 mb-2">Original (pre-refinement):</p>
-          <div className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto">
-            <img
-              src={spriteSheetUrl}
-              alt="Original sprite sheet"
-              style={{ imageRendering: 'pixelated', height: '192px', width: 'auto', display: 'block' }}
-              className="rounded opacity-70"
-            />
-          </div>
-          <a
-            href={spriteSheetUrl}
-            download={`${spriteName}_original.png`}
-            className="mt-2 inline-block text-xs text-white/40 hover:text-white/70 transition-colors"
-          >
-            Download original
-          </a>
-        </div>
+        </>
       )}
-    </>
+    </div>
   )
 
-  if (_noChrome) return <div>{singleInner}</div>
-
-  return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">4. Output</h2>
+  const masterTab = (
+    <div style={{ padding: 'var(--pf-pad)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span className="eyebrow" style={{ marginBottom: 0 }}>
+          Master sheet{isMasterRefined ? ' — Refined' : ''}
+        </span>
         <a
-          href={activeUrl}
-          download={refinedUrl ? `${spriteName}_refined.png` : `${spriteName}.png`}
-          className="text-xs bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+          href={activeMergedUrl}
+          download={`${spriteName}_all${isMasterRefined ? '_refined' : ''}.png`}
+          style={{
+            background: 'var(--pf-accent)', color: '#fff',
+            padding: '5px 12px', borderRadius: 'var(--pf-radius)',
+            fontSize: '0.75em', textDecoration: 'none', fontWeight: 600,
+          }}
         >
-          Download PNG
+          ↓ Download master sheet
         </a>
       </div>
-      {singleInner}
+      <div style={{
+        background: 'var(--pf-panel-2)',
+        border: '1px solid var(--pf-border)',
+        borderRadius: 'var(--pf-radius)',
+        padding: 10, overflowX: 'auto', overflowY: 'auto', maxHeight: 320,
+      }}>
+        <span className="field-hint" style={{ marginBottom: 6 }}>
+          8 rows (N → NW) × {frameCount || 1} frames
+        </span>
+        <img
+          src={activeMergedUrl}
+          alt="Master sprite sheet"
+          className="pixel-art"
+          style={{
+            height: 'auto',
+            width: `${(frameCount || 1) * (spriteSize || 64)}px`,
+            minWidth: '100%',
+            display: 'block',
+            borderRadius: 4,
+          }}
+        />
+      </div>
+    </div>
+  )
+
+  const compareTab = (
+    <div style={{ padding: 'var(--pf-pad)' }}>
+      {isAnimMode ? (
+        <>
+          {/* Compare strips for current direction */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <span className="eyebrow" style={{ marginBottom: 0 }}>Direction</span>
+            <DirWheel selectedDir={selectedDir} onSelect={setSelectedDir} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <span className="eyebrow">Refined — {selectedDir}</span>
+              <div style={{
+                background: 'var(--pf-panel-2)',
+                border: '1px solid var(--pf-border)',
+                borderRadius: 'var(--pf-radius)',
+                padding: 8, overflowX: 'auto',
+              }}>
+                {useMasterPreview ? (
+                  <div
+                    className="pixel-art"
+                    style={{
+                      height: 64, width: `${frameCount * 64}px`,
+                      backgroundImage: `url("${refinedMergedUrl}")`,
+                      backgroundSize: `${frameCount * 64}px ${8 * 64}px`,
+                      backgroundPosition: `0px -${dirIndex * 64}px`,
+                      backgroundRepeat: 'no-repeat',
+                      borderRadius: 4,
+                    }}
+                  />
+                ) : (
+                  <img
+                    src={activeUrls?.[selectedDir]}
+                    alt={`Refined ${selectedDir}`}
+                    className="pixel-art"
+                    style={{ height: 64, width: 'auto', display: 'block', borderRadius: 4 }}
+                  />
+                )}
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <span className="eyebrow">Original — {selectedDir}</span>
+              <div style={{
+                background: 'var(--pf-panel-2)',
+                border: '1px solid var(--pf-border)',
+                borderRadius: 'var(--pf-radius)',
+                padding: 8, overflowX: 'auto',
+              }}>
+                <img
+                  src={animationUrls?.[selectedDir]}
+                  alt={`Original ${selectedDir}`}
+                  className="pixel-art"
+                  style={{ height: 64, width: 'auto', display: 'block', borderRadius: 4, opacity: 0.75 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Master sheet comparison */}
+          {isMasterRefined && mergedUrl && (
+            <div style={{ marginTop: 16 }}>
+              <span className="eyebrow">Master sheet comparison</span>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span className="field-hint" style={{ marginBottom: 6 }}>Refined</span>
+                  <div style={{
+                    background: 'var(--pf-panel-2)', border: '1px solid var(--pf-border)',
+                    borderRadius: 'var(--pf-radius)', padding: 8, overflowX: 'auto', maxHeight: 200,
+                  }}>
+                    <img src={refinedMergedUrl} alt="Refined master" className="pixel-art"
+                      style={{ height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block' }} />
+                  </div>
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span className="field-hint" style={{ marginBottom: 6 }}>Original</span>
+                  <div style={{
+                    background: 'var(--pf-panel-2)', border: '1px solid var(--pf-border)',
+                    borderRadius: 'var(--pf-radius)', padding: 8, overflowX: 'auto', maxHeight: 200,
+                  }}>
+                    <img src={mergedUrl} alt="Original master" className="pixel-art"
+                      style={{ height: 'auto', width: `${frameCount * (spriteSize || 64)}px`, minWidth: '100%', display: 'block', opacity: 0.7 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Single-frame compare */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <span className="eyebrow">Refined</span>
+              <div style={{
+                background: 'var(--pf-panel-2)', border: '1px solid var(--pf-border)',
+                borderRadius: 'var(--pf-radius)', padding: 10, overflowX: 'auto',
+              }}>
+                <img src={refinedUrl} alt="Refined"
+                  className="pixel-art"
+                  style={{ height: 192, width: 'auto', display: 'block', borderRadius: 4 }} />
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <span className="eyebrow">Original</span>
+              <div style={{
+                background: 'var(--pf-panel-2)', border: '1px solid var(--pf-border)',
+                borderRadius: 'var(--pf-radius)', padding: 10, overflowX: 'auto',
+              }}>
+                <img src={spriteSheetUrl} alt="Original"
+                  className="pixel-art"
+                  style={{ height: 192, width: 'auto', display: 'block', borderRadius: 4, opacity: 0.75 }} />
+              </div>
+              <a
+                href={spriteSheetUrl}
+                download={`${spriteName}_original.png`}
+                style={{ display: 'inline-block', marginTop: 6, fontSize: '0.72em', color: 'var(--pf-mute)', textDecoration: 'none' }}
+              >
+                ↓ original
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  const tabContent = {
+    live:    liveTab,
+    '8dir':  eightDirTab,
+    master:  masterTab,
+    compare: compareTab,
+  }
+
+  const inner = (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Tab bar */}
+      <div className="pf-tabs" style={{ position: 'relative' }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`pf-tab${validTab === t.id ? ' active' : ''}`}
+          >
+            {t.label}
+          </button>
+        ))}
+        {isRefined && (
+          <span className="chip" style={{
+            position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+            background: 'var(--pf-accent-dim)', borderColor: 'rgba(139,92,246,0.3)',
+            color: 'var(--pf-accent)',
+          }}>
+            Refined
+          </span>
+        )}
+      </div>
+
+      {/* Tab content */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {validTab ? tabContent[validTab] : null}
+      </div>
+    </div>
+  )
+
+  if (_noChrome) return inner
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {inner}
     </div>
   )
 }
