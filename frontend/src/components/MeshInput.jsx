@@ -7,7 +7,6 @@ export function MeshInput({ onMeshReady }) {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
 
-  // Tripo3D fields
   const [prompt, setPrompt] = useState('')
   const [tripoJobId, setTripoJobId] = useState(null)
   const [generating, setGenerating] = useState(false)
@@ -16,7 +15,6 @@ export function MeshInput({ onMeshReady }) {
 
   const fileInputRef = useRef(null)
 
-  // Handle Tripo3D job completion and error — must be in effect, not render body
   useEffect(() => {
     if (!tripoStatus) return
     if (tripoStatus.status === 'done' && tripoStatus.output) {
@@ -73,22 +71,21 @@ export function MeshInput({ onMeshReady }) {
   const tripoFailed = tripoStatus?.status === 'error'
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-      <h2 className="text-lg font-semibold text-white mb-4">1. Mesh Input</h2>
+    <div className="panel">
+      <span className="eyebrow">Mesh Input</span>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4">
-        {['upload', 'generate'].map(t => (
+      {/* Tab switcher */}
+      <div className="seg seg-full" style={{ marginBottom: 12 }}>
+        {[
+          { id: 'upload',   label: 'Upload Mesh' },
+          { id: 'generate', label: 'Generate (Tripo3D)' },
+        ].map(t => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              tab === t
-                ? 'bg-violet-600 text-white'
-                : 'text-white/50 hover:text-white hover:bg-white/10'
-            }`}
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`seg-item${tab === t.id ? ' active' : ''}`}
           >
-            {t === 'upload' ? 'Upload Mesh' : 'Generate (Tripo3D)'}
+            {t.label}
           </button>
         ))}
       </div>
@@ -104,33 +101,52 @@ export function MeshInput({ onMeshReady }) {
               handleFileUpload(e.dataTransfer.files[0])
             }}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              dragOver
-                ? 'border-violet-400 bg-violet-400/10'
-                : 'border-white/20 hover:border-white/40'
-            }`}
+            style={{
+              border: `1px dashed ${dragOver ? 'var(--pf-accent)' : 'var(--pf-border)'}`,
+              background: dragOver ? 'var(--pf-accent-dim)' : 'var(--pf-panel-2)',
+              borderRadius: 'var(--pf-radius)',
+              padding: '20px 12px',
+              textAlign: 'center',
+              cursor: 'pointer',
+              transition: 'border-color 0.15s, background 0.15s',
+            }}
           >
             <input
               ref={fileInputRef}
               type="file"
               accept=".glb,.gltf,.blend,.fbx,.obj"
-              className="hidden"
+              style={{ display: 'none' }}
               onChange={e => handleFileUpload(e.target.files[0])}
             />
             {uploading ? (
-              <p className="text-white/60">Uploading...</p>
+              <p style={{ margin: 0, color: 'var(--pf-mute)', fontSize: '0.85em' }}>Uploading…</p>
             ) : uploadedFile ? (
-              <p className="text-green-400 font-medium">{uploadedFile} ✓</p>
+              <p style={{ margin: 0, color: 'var(--pf-good)', fontWeight: 500, fontSize: '0.85em' }}>
+                {uploadedFile} ✓
+              </p>
             ) : (
               <>
-                <p className="text-white/60 text-sm">Drag & drop a mesh file here</p>
-                <p className="text-white/30 text-xs mt-1">.glb · .gltf · .blend · .fbx · .obj — or click to browse</p>
+                <p style={{ margin: '0 0 4px', color: 'var(--pf-mute)', fontSize: '0.85em' }}>
+                  Drag & drop a mesh file here
+                </p>
+                <p style={{ margin: 0, color: 'var(--pf-dim)', fontSize: '0.72em' }}>
+                  .glb · .gltf · .blend · .fbx · .obj — or click to browse
+                </p>
               </>
             )}
           </div>
           <button
             onClick={() => { setUploadedFile(null); onMeshReady(null) }}
-            className="mt-3 text-xs text-white/30 hover:text-white/60 transition-colors"
+            style={{
+              marginTop: 8,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.72em',
+              color: 'var(--pf-dim)',
+              padding: 0,
+              transition: 'color 0.15s',
+            }}
           >
             Use test primitive instead
           </button>
@@ -138,30 +154,35 @@ export function MeshInput({ onMeshReady }) {
       )}
 
       {tab === 'generate' && (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input
             type="text"
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            placeholder="e.g. a fantasy sword, a sci-fi robot..."
+            onKeyDown={e => e.key === 'Enter' && handleGenerateMesh()}
+            placeholder="e.g. a fantasy sword, a sci-fi robot…"
             disabled={generating}
-            className="w-full bg-white/5 border border-white/20 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-violet-500 disabled:opacity-50"
+            className="pf-input"
           />
           <button
             onClick={handleGenerateMesh}
             disabled={generating || !prompt.trim()}
-            className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+            className="btn-primary"
           >
-            {generating ? 'Generating...' : 'Generate Mesh'}
+            {generating ? 'Generating…' : 'Generate Mesh'}
           </button>
           {generating && (
-            <p className="text-xs text-white/50 text-center">{tripoProgressMsg}</p>
+            <p style={{ margin: 0, fontSize: '0.72em', color: 'var(--pf-mute)', textAlign: 'center' }}>
+              {tripoProgressMsg}
+            </p>
           )}
           {tripoFailed && (
-            <p className="text-xs text-red-400">{tripoStatus.error || 'Generation failed.'}</p>
+            <p style={{ margin: 0, fontSize: '0.72em', color: 'var(--pf-err)' }}>
+              {tripoStatus.error || 'Generation failed.'}
+            </p>
           )}
           {tripoError && (
-            <p className="text-xs text-red-400">{tripoError}</p>
+            <p style={{ margin: 0, fontSize: '0.72em', color: 'var(--pf-err)' }}>{tripoError}</p>
           )}
         </div>
       )}

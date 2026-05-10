@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 
 const SIZES = [16, 32, 64, 128, 256]
+const PRESETS = [
+  { label: 'RPG 32',    size: 32 },
+  { label: 'Mobile 64', size: 64 },
+  { label: 'HD 128',    size: 128 },
+  { label: 'Src 256',   size: 256 },
+]
 const LS_OUTPUT_DIR = 'pixelforge_output_dir'
 
 export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempting, isRendering, disabled }) {
@@ -15,7 +21,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
   const [supersample, setSupersample] = useState(1)
-  const [blendActions, setBlendActions] = useState([])   // [{name, frame_start, frame_end}]
+  const [blendActions, setBlendActions] = useState([])
   const [selectedAction, setSelectedAction] = useState('')
   const [loadingActions, setLoadingActions] = useState(false)
 
@@ -24,7 +30,6 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
     if (saved) setOutputDir(saved)
   }, [])
 
-  // Fetch action list whenever a .blend file is loaded
   useEffect(() => {
     if (!meshFilename || !meshFilename.toLowerCase().endsWith('.blend')) {
       setBlendActions([])
@@ -65,16 +70,12 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
 
   async function handleRender() {
     setError(null)
-
     if (isAnimation && frameEnd <= frameStart) {
       setError('End frame must be greater than start frame.')
       return
     }
-
-    // Immediately clear old job state so stale results never show
     if (onRenderAttempting) onRenderAttempting()
     setIsPosting(true)
-
     try {
       const body = {
         sprite_size: spriteSize,
@@ -90,7 +91,6 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
         body.frame_start = frameStart
         body.frame_end = frameEnd
       }
-
       const res = await fetch('/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,7 +100,6 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`)
       onRenderStarted(data.job_id, { isAnimation, frameStart, frameEnd, spriteSize, supersample, name: outputName.trim() || 'sprite_sheet', mergeSheets: isAnimation && mergeSheets, bodyPart })
     } catch (e) {
-      // Network errors (backend not running) show as "Failed to fetch"
       const msg = e.message === 'Failed to fetch'
         ? 'Cannot reach the backend. Is the PixelForge Backend window open and running?'
         : e.message
@@ -113,71 +112,75 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const frameCount = isAnimation && frameEnd > frameStart ? frameEnd - frameStart + 1 : null
 
   return (
-    <div className={`bg-white/5 border border-white/10 rounded-xl p-5 transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
-      <h2 className="text-lg font-semibold text-white mb-4">2. Render Settings</h2>
+    <div
+      className="panel"
+      style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}
+    >
+      <span className="eyebrow">Render Settings</span>
+
+      {/* Preset strip */}
+      <div className="preset-strip">
+        {PRESETS.map(p => (
+          <button
+            key={p.size}
+            onClick={() => setSpriteSize(p.size)}
+            className={`preset-btn${spriteSize === p.size ? ' active' : ''}`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
 
       {/* Sprite size */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Sprite size (px)</p>
-        <div className="flex gap-2 flex-wrap">
+      <div className="pf-group">
+        <span className="eyebrow">Sprite size (px)</span>
+        <div className="seg seg-full">
           {SIZES.map(size => (
             <button
               key={size}
               onClick={() => setSpriteSize(size)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                spriteSize === size
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
+              className={`seg-item${spriteSize === size ? ' active' : ''}`}
             >
-              {size}×{size}
+              {size}
             </button>
           ))}
         </div>
-        <p className="text-xs text-white/30 mt-2">
-          Renders at {spriteSize}×{spriteSize}px. Use larger sizes for higher detail.
-        </p>
+        <span className="field-hint">
+          Renders at {spriteSize}×{spriteSize}px.
+          {supersample > 1 && ` (${spriteSize * supersample}px → ${spriteSize}px with super-sampling)`}
+        </span>
       </div>
 
       {/* Super-sampling */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Super-sampling</p>
-        <div className="flex gap-2">
+      <div className="pf-group">
+        <span className="eyebrow">Super-sampling</span>
+        <div className="seg seg-full">
           {[1, 2, 4].map(n => (
             <button
               key={n}
               onClick={() => setSupersample(n)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                supersample === n
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
+              className={`seg-item${supersample === n ? ' active' : ''}`}
             >
               {n === 1 ? 'Off' : `${n}×`}
             </button>
           ))}
         </div>
-        {supersample > 1 && (
-          <p className="text-xs text-white/30 mt-2">
-            Blender renders at {spriteSize * supersample}px, assembled to {spriteSize}px — better quality for thin geometry.
-          </p>
-        )}
       </div>
 
       {/* Action selector — .blend files only */}
       {meshFilename && meshFilename.toLowerCase().endsWith('.blend') && (
-        <div className="mb-4">
-          <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Action</p>
+        <div className="pf-group">
+          <span className="eyebrow">Action</span>
           {loadingActions ? (
-            <p className="text-xs text-white/30">Reading actions…</p>
+            <span className="field-hint">Reading actions…</span>
           ) : blendActions.length === 0 ? (
-            <p className="text-xs text-white/30">No actions found in this .blend file.</p>
+            <span className="field-hint">No actions found in this .blend file.</span>
           ) : (
             <>
               <select
                 value={selectedAction}
                 onChange={e => handleActionChange(e.target.value)}
-                className="w-full bg-[#1a1a22] border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 cursor-pointer"
+                className="pf-select"
               >
                 {blendActions.map(a => (
                   <option key={a.name} value={a.name}>{a.name}</option>
@@ -186,9 +189,9 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
               {selectedAction && (() => {
                 const a = blendActions.find(x => x.name === selectedAction)
                 return a ? (
-                  <p className="text-xs text-white/30 mt-1.5">
+                  <span className="field-hint">
                     Frames {a.frame_start}–{a.frame_end} ({a.frame_end - a.frame_start + 1} frames)
-                  </p>
+                  </span>
                 ) : null
               })()}
             </>
@@ -197,155 +200,155 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       )}
 
       {/* Output mode */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Output mode</p>
-        <div className="flex gap-2 mb-3">
+      <div className="pf-group">
+        <span className="eyebrow">Output mode</span>
+        <div className="seg seg-full" style={{ marginBottom: 10 }}>
           <button
             onClick={() => setIsAnimation(false)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              !isAnimation
-                ? 'bg-violet-600 border-violet-500 text-white'
-                : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-            }`}
+            className={`seg-item${!isAnimation ? ' active' : ''}`}
           >
             Single Frame
           </button>
           <button
             onClick={() => setIsAnimation(true)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              isAnimation
-                ? 'bg-violet-600 border-violet-500 text-white'
-                : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-            }`}
+            className={`seg-item${isAnimation ? ' active' : ''}`}
           >
             Animation
           </button>
         </div>
 
         {isAnimation && (
-          <div className="flex gap-4 items-end">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div>
-              <p className="text-xs text-white/40 mb-1">From frame</p>
+              <span className="eyebrow" style={{ marginBottom: 4 }}>From frame</span>
               <input
                 type="number"
                 min={0}
                 value={frameStart}
                 onChange={e => setFrameStart(Number(e.target.value))}
-                className="w-20 bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white text-center focus:outline-none focus:border-violet-500"
+                className="pf-input"
+                style={{ width: 72, textAlign: 'center' }}
               />
             </div>
             <div>
-              <p className="text-xs text-white/40 mb-1">To frame</p>
+              <span className="eyebrow" style={{ marginBottom: 4 }}>To frame</span>
               <input
                 type="number"
                 min={1}
                 value={frameEnd}
                 onChange={e => setFrameEnd(Number(e.target.value))}
-                className="w-20 bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white text-center focus:outline-none focus:border-violet-500"
+                className="pf-input"
+                style={{ width: 72, textAlign: 'center' }}
               />
             </div>
             {frameCount && (
-              <p className="text-xs text-white/30 pb-2">{frameCount} frames × 8 directions</p>
+              <span style={{ fontSize: '0.72em', color: 'var(--pf-mute)', paddingBottom: 6 }}>
+                {frameCount} frames × 8 directions
+              </span>
             )}
           </div>
         )}
       </div>
 
       {/* Body part */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Body part</p>
-        <div className="flex gap-2 flex-wrap">
+      <div className="pf-group">
+        <span className="eyebrow">Body part</span>
+        <div className="seg seg-full">
           {[
             { value: 'full',  label: 'Full body' },
-            { value: 'upper', label: 'Upper only' },
-            { value: 'lower', label: 'Lower only' },
-            { value: 'split', label: 'Split (both)' },
+            { value: 'upper', label: 'Upper' },
+            { value: 'lower', label: 'Lower' },
+            { value: 'split', label: 'Split' },
           ].map(({ value, label }) => (
             <button
               key={value}
               onClick={() => setBodyPart(value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                bodyPart === value
-                  ? 'bg-violet-600 border-violet-500 text-white'
-                  : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40 hover:text-white'
-              }`}
+              className={`seg-item${bodyPart === value ? ' active' : ''}`}
             >
               {label}
             </button>
           ))}
         </div>
         {bodyPart !== 'full' && (
-          <p className="text-xs text-white/30 mt-2">
-            Requires <code className="text-white/40">UpperBody</code> and <code className="text-white/40">LowerBody</code> collections in the .blend file.
-            {bodyPart === 'split' && ' Runs two passes — takes 2× render time.'}
-          </p>
+          <span className="field-hint">
+            Requires <code>UpperBody</code> and <code>LowerBody</code> collections.
+            {bodyPart === 'split' && ' Runs two passes (2× render time).'}
+          </span>
         )}
       </div>
 
       {/* Output name */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Output name (optional)</p>
+      <div className="pf-group">
+        <span className="eyebrow">Output name (optional)</span>
         <input
           type="text"
           maxLength={40}
           placeholder="sprite_sheet"
           value={outputName}
           onChange={e => setOutputName(e.target.value)}
-          className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-white/20"
+          className="pf-input"
         />
-        <p className="text-xs text-white/30 mt-1.5">Names the output file(s). Defaults to <code className="text-white/40">sprite_sheet</code>.</p>
+        <span className="field-hint">Names the output file(s). Defaults to <code>sprite_sheet</code>.</span>
       </div>
 
       {/* Output folder */}
-      <div className="mb-4">
-        <p className="text-xs text-white/50 mb-2 uppercase tracking-wider">Output folder (optional)</p>
+      <div className="pf-group">
+        <span className="eyebrow">Output folder (optional)</span>
         <input
           type="text"
           placeholder="e.g. C:\MyGame\assets\sprites"
           value={outputDir}
           onChange={e => handleOutputDirChange(e.target.value)}
-          className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-white/20 font-mono"
+          className="pf-input pf-input-mono"
+          style={{ fontSize: '0.72em' }}
         />
-        <p className="text-xs text-white/30 mt-1.5">Copies finished sheets here too (e.g. your game asset repo). Remembered between sessions.</p>
+        <span className="field-hint">Copies finished sheets here too. Remembered between sessions.</span>
       </div>
 
       {/* Merge sheets — animation mode only */}
       {isAnimation && (
-        <div className="mb-4">
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={mergeSheets}
-              onChange={e => setMergeSheets(e.target.checked)}
-              className="w-4 h-4 accent-violet-500 cursor-pointer"
-            />
-            <span className="text-sm text-white/70 group-hover:text-white transition-colors">
-              Merge all 8 directions into one master sheet
-            </span>
+        <div className="pf-group">
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            onClick={() => setMergeSheets(v => !v)}
+          >
+            <div className={`pf-toggle-track${mergeSheets ? ' on' : ''}`}>
+              <div className="pf-toggle-thumb" />
+            </div>
+            <span style={{ fontSize: '0.85em' }}>Merge all 8 directions into one master sheet</span>
           </label>
-          <p className="text-xs text-white/30 mt-1.5 ml-7">
-            Produces <code className="text-white/40">{outputName.trim() || 'sprite_sheet'}_all.png</code> — 8 rows (N→NW) × num_frames columns. Ideal for engine import.
-          </p>
+          <span className="field-hint" style={{ marginLeft: 46 }}>
+            Produces <code>{outputName.trim() || 'sprite_sheet'}_all.png</code> — 8 rows × num_frames columns.
+          </span>
         </div>
       )}
 
-      <div className="mb-4 text-xs text-white/50">
-        Mesh: <span className="text-white/80">{meshFilename || '(test primitive — humanoid capsule)'}</span>
+      {/* Mesh info */}
+      <div style={{ marginBottom: 12, fontSize: '0.72em', color: 'var(--pf-mute)' }}>
+        Mesh: <span style={{ color: 'var(--pf-text)' }}>{meshFilename || '(test primitive)'}</span>
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg bg-red-500/15 border border-red-500/40 px-4 py-3">
-          <p className="text-sm font-semibold text-red-400 mb-0.5">Render failed to start</p>
-          <p className="text-xs text-red-300/80">{error}</p>
+        <div style={{
+          marginBottom: 10,
+          borderRadius: 'var(--pf-radius)',
+          background: 'rgba(248,113,113,0.08)',
+          border: '1px solid rgba(248,113,113,0.3)',
+          padding: '8px 12px',
+        }}>
+          <p style={{ margin: '0 0 3px', fontSize: '0.85em', fontWeight: 600, color: 'var(--pf-err)' }}>
+            Render failed to start
+          </p>
+          <p style={{ margin: 0, fontSize: '0.75em', color: 'rgba(248,113,113,0.8)' }}>{error}</p>
         </div>
       )}
 
       <button
         onClick={handleRender}
         disabled={isRendering || isPosting || disabled}
-        className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+        className="btn-primary"
       >
-        {isPosting ? 'Connecting...' : isRendering ? 'Rendering...' : isAnimation ? 'Render Animation' : 'Render Sprite Sheet'}
+        {isPosting ? 'Connecting…' : isRendering ? 'Rendering…' : isAnimation ? 'Render Animation' : 'Render Sprite Sheet'}
       </button>
     </div>
   )

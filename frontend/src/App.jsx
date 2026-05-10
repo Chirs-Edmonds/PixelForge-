@@ -4,6 +4,8 @@ import { RenderSettings } from './components/RenderSettings'
 import { StatusBar } from './components/StatusBar'
 import { RefinementPanel } from './components/RefinementPanel'
 import { SpriteSheetOutput } from './components/SpriteSheetOutput'
+import { TopBar } from './components/TopBar'
+import { Sidebar } from './components/Sidebar'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
@@ -12,16 +14,17 @@ export default function App() {
   const [renderJobId, setRenderJobId]       = useState(null)
   const [renderDone, setRenderDone]         = useState(false)
   const [isRendering, setIsRendering]       = useState(false)
+  const [hasError, setHasError]             = useState(false)
   const [spriteSheetUrl, setSpriteSheetUrl] = useState(null)
   const [refinedUrl, setRefinedUrl]         = useState(null)
   const [animationUrls, setAnimationUrls]   = useState(null)
-  const [animConfig, setAnimConfig]                   = useState(null)
-  const [mergedUrl, setMergedUrl]                     = useState(null)
+  const [animConfig, setAnimConfig]         = useState(null)
+  const [mergedUrl, setMergedUrl]           = useState(null)
   const [refinedAnimationUrls, setRefinedAnimationUrls] = useState(null)
   const [refinedMergedUrl, setRefinedMergedUrl]         = useState(null)
-  const [splitSheets, setSplitSheets]                 = useState(null) // split-body mode only
+  const [splitSheets, setSplitSheets]       = useState(null)
+  const [activeView, setActiveView]         = useState('forge')
 
-  // Use a ref to track animConfig inside callbacks without stale closure issues
   const animConfigRef = useRef(null)
   const renderDoneRef = useRef(false)
 
@@ -30,6 +33,7 @@ export default function App() {
     renderDoneRef.current = true
     setRenderDone(true)
     setIsRendering(false)
+    setHasError(false)
 
     const config = animConfigRef.current
     const name   = config?.name || 'sprite_sheet'
@@ -42,9 +46,6 @@ export default function App() {
     }
 
     if (config?.bodyPart === 'split') {
-      // Two passes were rendered — build separate URL sets for upper and lower.
-      // jobData.output = "sheets/{safe_name}_legs" for split renders; strip both parts
-      // to recover the sanitized base name the server actually wrote files under.
       const safeBase   = jobData?.output?.replace('sheets/', '').replace(/_legs(\.png)?$/, '') || name
       const showMerged = config.isAnimation && config.mergeSheets
       setSplitSheets([
@@ -67,7 +68,6 @@ export default function App() {
       setSpriteSheetUrl(null)
       setMergedUrl(null)
     } else if (config?.isAnimation) {
-      // Use the server-returned prefix (safe_name) so URLs match the sanitized filenames on disk
       const animPrefix = jobData?.output?.replace('sheets/', '') || name
       setSplitSheets(null)
       setAnimationUrls(buildAnimUrls(animPrefix))
@@ -84,13 +84,12 @@ export default function App() {
   function handleRenderError() {
     renderDoneRef.current = false
     setIsRendering(false)
+    setHasError(true)
   }
 
   function handleSplitRefined(data) {
     const ts = Date.now()
-
     if (data?.is_split && data?.is_animation) {
-      // Split animation: only master sheets are refined — update each tab's mergedUrl.
       const prefix   = data.output?.replace('sheets/', '') || animConfig?.name || 'sprite_sheet'
       const suffixes = ['_upper', '_legs']
       const hasMasters = [data.has_master_upper, data.has_master_legs]
@@ -101,7 +100,6 @@ export default function App() {
           : null,
       })))
     } else {
-      // Single-frame split: data.output = ["{name}_upper_refined.png", "{name}_legs_refined.png"]
       setSplitSheets(prev => prev.map((sheet, i) => ({
         ...sheet,
         refinedUrl: `/api/output/${data.output[i]}?t=${ts}`,
@@ -118,11 +116,10 @@ export default function App() {
   }
 
   function handleRenderAttempting() {
-    // Called the instant the Render button is clicked, before the POST resolves.
-    // Clears all old job state so stale status from a previous run never lingers.
     renderDoneRef.current = false
     setRenderDone(false)
     setIsRendering(false)
+    setHasError(false)
     setSpriteSheetUrl(null)
     setRefinedUrl(null)
     setAnimationUrls(null)
@@ -139,6 +136,7 @@ export default function App() {
     setAnimConfig(config)
     setRenderDone(false)
     setIsRendering(true)
+    setHasError(false)
     setSpriteSheetUrl(null)
     setRefinedUrl(null)
     setAnimationUrls(null)
@@ -150,57 +148,147 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f13] text-white">
-      {/* Header */}
-      <header className="border-b border-white/10 px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="w-7 h-7 bg-violet-600 rounded-md flex items-center justify-center text-xs font-bold">PF</div>
-          <h1 className="text-lg font-semibold tracking-tight">PixelForge</h1>
-          <span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded">8-dir sprite sheet generator</span>
-        </div>
-      </header>
+    <div style={{
+      background: 'var(--pf-bg)',
+      color: 'var(--pf-text)',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      fontFamily: "'Geist', system-ui, 'Segoe UI', sans-serif",
+      fontSize: 'var(--pf-fs)',
+      overflow: 'hidden',
+    }}>
+      <TopBar
+        meshFilename={meshFilename}
+        isRendering={isRendering}
+        renderDone={renderDone}
+        hasError={hasError}
+        animConfig={animConfig}
+      />
 
-      {/* Main */}
-      <main className="max-w-3xl mx-auto px-6 py-8 space-y-4">
-        <MeshInput onMeshReady={setMeshFilename} />
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <Sidebar activeView={activeView} onViewChange={setActiveView} />
 
-        <RenderSettings
-          meshFilename={meshFilename}
-          onRenderStarted={handleNewRender}
-          onRenderAttempting={handleRenderAttempting}
-          isRendering={isRendering}
-          disabled={false}
-        />
+        {/* Settings column */}
+        <div style={{
+          width: 304,
+          flexShrink: 0,
+          overflowY: 'auto',
+          borderRight: '1px solid var(--pf-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--pf-gap)',
+          padding: 'var(--pf-pad)',
+        }}>
+          <MeshInput onMeshReady={setMeshFilename} />
 
-        {renderJobId && (
-          <StatusBar
-            jobId={renderJobId}
-            onDone={handleRenderDone}
-            onError={handleRenderError}
+          <RenderSettings
+            meshFilename={meshFilename}
+            onRenderStarted={handleNewRender}
+            onRenderAttempting={handleRenderAttempting}
+            isRendering={isRendering}
+            disabled={false}
           />
+
+          {renderJobId && (
+            <StatusBar
+              jobId={renderJobId}
+              onDone={handleRenderDone}
+              onError={handleRenderError}
+            />
+          )}
+
+          <RefinementPanel
+            disabled={!renderDone}
+            onRefined={setRefinedUrl}
+            onAnimationRefined={handleAnimationRefined}
+            onSplitRefined={handleSplitRefined}
+            animConfig={animConfig}
+          />
+        </div>
+
+        {/* Preview pane */}
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <SpriteSheetOutput
+            spriteSheetUrl={spriteSheetUrl}
+            refinedUrl={refinedUrl}
+            animationUrls={animationUrls}
+            refinedAnimationUrls={refinedAnimationUrls}
+            frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
+            spriteSize={animConfig?.spriteSize}
+            spriteName={animConfig?.name || 'sprite_sheet'}
+            mergedUrl={mergedUrl}
+            refinedMergedUrl={refinedMergedUrl}
+            splitSheets={splitSheets}
+            isRendering={isRendering}
+          />
+        </div>
+
+        {/* Queue rail stub — shown once a render job exists */}
+        {renderJobId && (
+          <div style={{
+            width: 252,
+            flexShrink: 0,
+            borderLeft: '1px solid var(--pf-border)',
+            background: 'var(--pf-panel)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <div style={{
+              padding: '12px 14px',
+              borderBottom: '1px solid var(--pf-border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>Queue</span>
+              <span className="chip">1</span>
+            </div>
+
+            <div style={{ padding: 12, flex: 1 }}>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 7,
+                background: 'var(--pf-panel-2)',
+                border: '1px solid var(--pf-border)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <div style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: renderDone
+                      ? 'var(--pf-good)'
+                      : hasError
+                        ? 'var(--pf-err)'
+                        : 'var(--pf-accent)',
+                    flexShrink: 0,
+                  }} />
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {animConfig?.name || 'sprite_sheet'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--pf-mute)', display: 'block' }}>
+                  {renderDone ? 'Complete' : hasError ? 'Failed' : 'Rendering…'}
+                </span>
+                {animConfig && (
+                  <span style={{ fontSize: 11, color: 'var(--pf-dim)', display: 'block', marginTop: 2 }}>
+                    {animConfig.spriteSize}px
+                    {animConfig.isAnimation && ` · ${animConfig.frameEnd - animConfig.frameStart + 1} frames`}
+                    {' · 8 dir'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         )}
-
-        <RefinementPanel
-          disabled={!renderDone}
-          onRefined={setRefinedUrl}
-          onAnimationRefined={handleAnimationRefined}
-          onSplitRefined={handleSplitRefined}
-          animConfig={animConfig}
-        />
-
-        <SpriteSheetOutput
-          spriteSheetUrl={spriteSheetUrl}
-          refinedUrl={refinedUrl}
-          animationUrls={animationUrls}
-          refinedAnimationUrls={refinedAnimationUrls}
-          frameCount={animConfig?.isAnimation ? (animConfig.frameEnd - animConfig.frameStart + 1) : null}
-          spriteSize={animConfig?.spriteSize}
-          spriteName={animConfig?.name || 'sprite_sheet'}
-          mergedUrl={mergedUrl}
-          refinedMergedUrl={refinedMergedUrl}
-          splitSheets={splitSheets}
-        />
-      </main>
+      </div>
     </div>
   )
 }

@@ -1,12 +1,261 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=VT323&display=swap');
 @import "tailwindcss";
 
-* {
-  box-sizing: border-box;
+:root {
+  --pf-bg: #0a0a0d;
+  --pf-panel: #111114;
+  --pf-panel-2: #16161b;
+  --pf-border: rgba(255,255,255,0.07);
+  --pf-accent: #8b5cf6;
+  --pf-accent-dim: rgba(139,92,246,0.15);
+  --pf-good: #34d399;
+  --pf-warn: #fbbf24;
+  --pf-err: #f87171;
+  --pf-text: rgba(255,255,255,0.92);
+  --pf-mute: rgba(255,255,255,0.45);
+  --pf-dim: rgba(255,255,255,0.2);
+  --pf-pad: 16px;
+  --pf-gap: 10px;
+  --pf-radius: 7px;
+  --pf-fs: 13px;
 }
+
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: #0f0f13;
-  color: #e2e2e8;
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  background: var(--pf-bg);
+  color: var(--pf-text);
+  font-family: 'Geist', system-ui, 'Segoe UI', sans-serif;
+  font-size: var(--pf-fs);
 }
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--pf-dim); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--pf-mute); }
+
+/* ── Animations ── */
+@keyframes ping {
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+.pf-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* ── Panel surfaces ── */
+.panel {
+  background: var(--pf-panel);
+  border: 1px solid var(--pf-border);
+  border-radius: var(--pf-radius);
+  padding: var(--pf-pad);
+}
+
+.panel-2 {
+  background: var(--pf-panel-2);
+  border: 1px solid var(--pf-border);
+  border-radius: var(--pf-radius);
+  padding: var(--pf-pad);
+}
+
+/* ── Typography ── */
+.eyebrow {
+  font-size: 0.65em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pf-mute);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--pf-panel-2);
+  border: 1px solid var(--pf-border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.72em;
+  color: var(--pf-mute);
+  white-space: nowrap;
+}
+
+/* ── Segmented controls ── */
+.seg {
+  display: inline-flex;
+  background: var(--pf-panel-2);
+  border: 1px solid var(--pf-border);
+  border-radius: var(--pf-radius);
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg-full { display: flex; width: 100%; }
+
+.seg-item {
+  padding: 4px 10px;
+  border-radius: calc(var(--pf-radius) - 2px);
+  border: none;
+  background: transparent;
+  color: var(--pf-mute);
+  font-size: var(--pf-fs);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  flex: 1;
+  text-align: center;
+}
+
+.seg-item:hover { background: rgba(255,255,255,0.06); color: var(--pf-text); }
+.seg-item.active { background: var(--pf-accent); color: #fff; }
+
+/* ── Toggle switch ── */
+.pf-toggle-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--pf-dim);
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.pf-toggle-track.on { background: var(--pf-accent); }
+
+.pf-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  pointer-events: none;
+}
+
+.pf-toggle-track.on .pf-toggle-thumb { transform: translateX(16px); }
+
+/* ── Form elements ── */
+.field-hint { font-size: 0.72em; color: var(--pf-mute); margin-top: 4px; display: block; }
+
+.pf-input {
+  width: 100%;
+  background: var(--pf-panel-2);
+  border: 1px solid var(--pf-border);
+  border-radius: var(--pf-radius);
+  padding: 6px 10px;
+  font-size: var(--pf-fs);
+  font-family: inherit;
+  color: var(--pf-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.pf-input:focus { border-color: var(--pf-accent); }
+.pf-input::placeholder { color: var(--pf-dim); }
+.pf-input:disabled { opacity: 0.4; }
+
+.pf-input-mono { font-family: 'Geist Mono', monospace; }
+
+.pf-select {
+  width: 100%;
+  background: var(--pf-panel-2);
+  border: 1px solid var(--pf-border);
+  border-radius: var(--pf-radius);
+  padding: 6px 10px;
+  font-size: var(--pf-fs);
+  font-family: inherit;
+  color: var(--pf-text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.pf-select:focus { border-color: var(--pf-accent); }
+
+/* ── Buttons ── */
+.btn-primary {
+  width: 100%;
+  background: var(--pf-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--pf-radius);
+  padding: 9px 16px;
+  font-size: var(--pf-fs);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-primary:hover { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Tab bar ── */
+.pf-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--pf-border);
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.pf-tab {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--pf-mute);
+  font-size: var(--pf-fs);
+  font-family: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.pf-tab:hover { color: var(--pf-text); }
+.pf-tab.active { color: var(--pf-accent); border-bottom-color: var(--pf-accent); }
+
+/* ── Section dividers ── */
+.pf-group {
+  border-bottom: 1px solid var(--pf-border);
+  padding-bottom: var(--pf-pad);
+  margin-bottom: var(--pf-pad);
+}
+
+.pf-group:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+
+/* ── Pixel art ── */
+.pixel-art { image-rendering: pixelated; }
+
+/* ── Preset strip ── */
+.preset-strip {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.preset-btn {
+  flex: 1;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-panel-2);
+  color: var(--pf-mute);
+  font-size: 0.7em;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.preset-btn:hover { border-color: var(--pf-accent); color: var(--pf-accent); }
+.preset-btn.active { border-color: var(--pf-accent); color: var(--pf-accent); background: var(--pf-accent-dim); }
