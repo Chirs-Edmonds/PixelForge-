@@ -38,7 +38,7 @@ export function MeshInput({ onMeshReady }) {
     try {
       const res = await fetch('/api/upload-mesh', { method: 'POST', body: form })
       if (!res.ok) {
-        let detail = 'Upload failed'
+        let detail = `Upload failed (HTTP ${res.status})`
         try { detail = (await res.json()).detail || detail } catch { /* empty body */ }
         throw new Error(detail)
       }
