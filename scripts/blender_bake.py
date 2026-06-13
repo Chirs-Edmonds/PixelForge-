@@ -129,6 +129,7 @@ def _setup_from_blend(mesh_path, size, action_name=None):
 
     add_lighting(scene)
     _sync_view_layer_visibility(scene)
+    _sync_object_visibility(scene)
 
     if action_name:
         target = bpy.data.actions.get(action_name)
@@ -172,6 +173,33 @@ def _sync_view_layer_visibility(scene):
             walk(child)
 
     walk(vl.layer_collection)
+
+
+def _sync_object_visibility(scene):
+    """Mirror object-level viewport hiding onto render hiding.
+
+    The eye/H toggle (object.hide_get) and the monitor icon
+    (object.hide_viewport) hide an object in the viewport but do NOT stop it
+    from rendering — only object.hide_render does.  PixelForge's contract is
+    "render exactly what is visible in the viewport", so any object the artist
+    has hidden individually is also hidden from the render.  (Collection-level
+    hiding is handled separately by _sync_view_layer_visibility; this only
+    touches an object's own hide_render flag, leaving collection-hidden meshes
+    such as split-body halves untouched so framing stays consistent.)
+    """
+    vl = scene.view_layers[0]
+    for obj in scene.objects:
+        try:
+            eye_hidden = obj.hide_get(view_layer=vl)
+        except (TypeError, RuntimeError):
+            try:
+                eye_hidden = obj.hide_get()
+            except RuntimeError:
+                eye_hidden = False
+        if (eye_hidden or obj.hide_viewport) and not obj.hide_render:
+            obj.hide_render = True
+            print(f"[PixelForge] Render-hiding object "
+                  f"(eye={eye_hidden}, monitor={obj.hide_viewport}): {obj.name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -220,17 +248,29 @@ def load_or_generate_mesh(args, scene):
         print("[PixelForge] No mesh provided — generating humanoid test primitive.")
         _generate_humanoid(scene)
 
-    # Compute true bounding box (min/max) across all mesh objects in world space.
-    # Evaluate at the first animation frame so armature deformations are applied —
-    # obj.data.vertices gives rest-pose positions and will mis-centre animated chars.
-    mesh_objects = [o for o in scene.objects if o.type == 'MESH']
-    if not mesh_objects:
-        raise RuntimeError("No mesh objects found in scene after import/generation.")
-
+    # Compute true bounding box (min/max) across all *visible* mesh objects in
+    # world space.  Evaluate at the first animation frame so armature
+    # deformations are applied — obj.data.vertices gives rest-pose positions and
+    # will mis-centre animated chars.
     eval_frame = args.frame_start if args.frame_start is not None else scene.frame_start
     scene.frame_set(eval_frame)
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    # Frame over the meshes that will actually render — i.e. what is visible in
+    # the viewport, which _setup_from_blend has already mirrored onto render
+    # visibility (collection hide + object-level hide via _sync_object_visibility).
+    # This drops individually-hidden strays, collection-hidden bodies, and the
+    # excluded Rigify widget collections so none of them inflate the bounding box
+    # / ortho_scale.  NOTE: split body-part hiding (--hide-collections) is applied
+    # AFTER this in main(), so both split passes still share the full bounding box
+    # and their resulting sprites stay aligned.
+    mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.visible_get()]
+    if not mesh_objects:
+        raise RuntimeError(
+            "No visible mesh objects found in scene after import/generation — "
+            "is everything hidden in the viewport (eye/monitor icon) or excluded?"
+        )
 
     all_world_verts = []
     for obj in mesh_objects:
