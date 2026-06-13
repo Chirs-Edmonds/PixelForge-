@@ -248,29 +248,21 @@ def load_or_generate_mesh(args, scene):
         print("[PixelForge] No mesh provided — generating humanoid test primitive.")
         _generate_humanoid(scene)
 
-    # Compute true bounding box (min/max) across all *visible* mesh objects in
-    # world space.  Evaluate at the first animation frame so armature
-    # deformations are applied — obj.data.vertices gives rest-pose positions and
-    # will mis-centre animated chars.
+    # Compute true bounding box (min/max) across all mesh objects in world space.
+    # Evaluate at the first animation frame so armature deformations are applied —
+    # obj.data.vertices gives rest-pose positions and will mis-centre animated chars.
+    # NOTE: framing intentionally spans ALL meshes (incl. rig widgets / hidden
+    # collections) so every animation in a set shares one consistent scale. Do not
+    # filter to visible_get() — that makes ortho_scale pose/stray-dependent and
+    # desyncs sprite sizes across sheets.
+    mesh_objects = [o for o in scene.objects if o.type == 'MESH']
+    if not mesh_objects:
+        raise RuntimeError("No mesh objects found in scene after import/generation.")
+
     eval_frame = args.frame_start if args.frame_start is not None else scene.frame_start
     scene.frame_set(eval_frame)
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
-
-    # Frame over the meshes that will actually render — i.e. what is visible in
-    # the viewport, which _setup_from_blend has already mirrored onto render
-    # visibility (collection hide + object-level hide via _sync_object_visibility).
-    # This drops individually-hidden strays, collection-hidden bodies, and the
-    # excluded Rigify widget collections so none of them inflate the bounding box
-    # / ortho_scale.  NOTE: split body-part hiding (--hide-collections) is applied
-    # AFTER this in main(), so both split passes still share the full bounding box
-    # and their resulting sprites stay aligned.
-    mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.visible_get()]
-    if not mesh_objects:
-        raise RuntimeError(
-            "No visible mesh objects found in scene after import/generation — "
-            "is everything hidden in the viewport (eye/monitor icon) or excluded?"
-        )
 
     all_world_verts = []
     for obj in mesh_objects:
