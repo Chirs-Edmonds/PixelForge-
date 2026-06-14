@@ -22,9 +22,10 @@ frontend/.vite/
 node_modules/
 
 # Generated outputs (runtime artifacts)
-output/frames/
-output/*.png
-output/*.gif
+output/
+
+# Scratch screenshots
+screenshots/
 
 # User-supplied mesh assets (not tracked in repo)
 assets/
@@ -36,6 +37,9 @@ tools/realesrgan-ncnn-vulkan/
 
 # Claude internal
 .claude/
+
+# Local MCP server config (machine-specific paths)
+.mcp.json
 
 # OS
 .DS_Store

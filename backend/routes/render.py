@@ -36,6 +36,8 @@ OUTPUT_SHEETS   = PROJECT_ROOT / "output" / "sheets"
 OUTPUT_MERGED   = PROJECT_ROOT / "output" / "merged"
 OUTPUT_REFINED  = PROJECT_ROOT / "output" / "refined"
 ASSETS_DIR      = PROJECT_ROOT / "assets"
+PREVIEW_SCRIPT  = PROJECT_ROOT / "scripts" / "blender_preview.py"
+OUTPUT_PREVIEW  = PROJECT_ROOT / "output" / "preview"
 
 VALID_SIZES = {16, 32, 64, 128, 256}
 
@@ -68,6 +70,15 @@ async def upload_mesh(file: UploadFile = File(...)):
                 await out.write(chunk)
     except OSError as e:
         raise HTTPException(500, f"Failed to save file: {e}")
+
+    # Invalidate all cached preview GLBs for this file (all action/body_part combos)
+    stem = Path(safe_filename).stem
+    OUTPUT_PREVIEW.mkdir(parents=True, exist_ok=True)
+    for cached in OUTPUT_PREVIEW.glob(f"{stem}_*_preview.glb"):
+        try:
+            cached.unlink()
+        except OSError:
+            pass
 
     return {"filename": safe_filename}
 
@@ -111,6 +122,97 @@ async def get_blend_info(filename: str):
     return {"actions": []}
 
 
+# body_part → collections to hide before GLB export (mirrors blender_bake.py split logic)
+_BODY_PART_HIDE: dict[str, str] = {
+    "full":  "",
+    "upper": "LowerBody",
+    "lower": "UpperBody",
+    "split": "",   # show everything for split preview
+}
+
+# ---------------------------------------------------------------------------
+# Preview-mesh endpoint — converts any supported format to GLB for browser preview
+# ---------------------------------------------------------------------------
+
+@router.get("/preview-mesh")
+async def preview_mesh(
+    filename: str,
+    action_name: str = "",
+    body_part: str = "full",
+):
+    """
+    Return a URL to a self-contained GLB file for browser-side 3D preview.
+
+    - .glb: served directly from /assets/ (no Blender needed)
+    - .gltf / .blend / .fbx / .obj: converted via Blender, cached at output/preview/
+
+    action_name  — pose model at frame 1 of this action (empty = rest pose)
+    body_part    — "full"|"upper"|"lower"|"split"; hides the opposite collection
+    """
+    if not filename:
+        raise HTTPException(400, "filename query parameter is required.")
+
+    ext = Path(filename).suffix.lower()
+    if ext not in {".glb", ".gltf", ".blend", ".fbx", ".obj"}:
+        raise HTTPException(400, f"Unsupported format: {ext}")
+
+    safe_name = Path(filename).name
+    src_path = ASSETS_DIR / safe_name
+    try:
+        src_path.resolve().relative_to(ASSETS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(400, "Invalid filename.")
+    if not src_path.exists():
+        raise HTTPException(404, f"File not found in assets/: {safe_name}")
+
+    # GLB is self-contained — serve directly (no Blender conversion)
+    if ext == ".glb":
+        return {"url": f"/assets/{safe_name}"}
+
+    # Cache key includes action and body_part so each combination is stored separately
+    stem = Path(safe_name).stem
+    action_safe = re.sub(r'[^a-zA-Z0-9_-]', '_', action_name) if action_name else "default"
+    body_safe   = body_part if body_part in _BODY_PART_HIDE else "full"
+    glb_filename = f"{stem}_{action_safe}_{body_safe}_preview.glb"
+    glb_path = OUTPUT_PREVIEW / glb_filename
+    OUTPUT_PREVIEW.mkdir(parents=True, exist_ok=True)
+
+    if not glb_path.exists():
+        hide_col = _BODY_PART_HIDE.get(body_safe, "")
+        cmd = [
+            str(BLENDER_EXE),
+            "--background", "--factory-startup",
+            "--python", str(PREVIEW_SCRIPT),
+            "--", str(src_path.resolve()), str(glb_path.resolve()),
+        ]
+        if action_name:
+            cmd += ["--action", action_name]
+        if hide_col:
+            cmd += ["--hide-collections", hide_col]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(500, "Blender preview conversion timed out (>120s).")
+
+        combined = (stdout.decode("utf-8", errors="replace") +
+                    stderr.decode("utf-8", errors="replace"))
+        if proc.returncode != 0 or not glb_path.exists():
+            raise HTTPException(
+                500,
+                f"Blender preview conversion failed (exit {proc.returncode}).\n\n"
+                + combined[-3000:],
+            )
+
+    return {"url": f"/output/preview/{glb_filename}"}
+
+
 # ---------------------------------------------------------------------------
 # Render endpoint
 # ---------------------------------------------------------------------------
@@ -129,6 +231,7 @@ class RenderRequest(BaseModel):
     body_part: str = "full"           # "full" | "upper" | "lower" | "split"
     action_name: str | None = None    # .blend only: name of action to render
     supersample: int = 1              # 1 | 2 | 4 — Blender renders at sprite_size × supersample
+    ortho_scale: float = 0.0          # 0 = auto-fit bbox; >0 LOCKS camera frame width (consistent scale across sheets)
 
 
 @router.post("/render")
@@ -137,6 +240,8 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
         raise HTTPException(400, f"sprite_size must be one of {sorted(VALID_SIZES)}.")
     if req.supersample not in (1, 2, 4):
         raise HTTPException(400, "supersample must be 1, 2, or 4.")
+    if req.ortho_scale < 0.0:
+        raise HTTPException(400, "ortho_scale must be >= 0 (0 = auto-fit).")
 
     if req.mesh_path:
         mesh_abs = ASSETS_DIR / req.mesh_path
@@ -163,7 +268,8 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     create_job(job_id)
     background_tasks.add_task(
         _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
-        safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name, req.supersample
+        safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name, req.supersample,
+        req.ortho_scale,
     )
     return {"job_id": job_id}
 
@@ -216,9 +322,10 @@ def _run_render(
     body_part: str = "full",
     action_name: str | None = None,
     supersample: int = 1,
+    ortho_scale: float = 0.0,
 ) -> None:
     try:
-        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part, action_name, supersample)
+        _run_render_inner(job_id, sprite_size, mesh_path, frame_start, frame_end, name, output_dir, merge_sheets, body_part, action_name, supersample, ortho_scale)
     except Exception:
         tb = traceback.format_exc()
         print(f"[PixelForge Backend] UNHANDLED ERROR in _run_render:\n{tb}")
@@ -227,7 +334,7 @@ def _run_render(
                    error=tb[-2000:])
 
 
-def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections="", action_name=None):
+def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections="", action_name=None, ortho_scale=0.0):
     cmd = [
         str(BLENDER_EXE),
         "--background", "--factory-startup",
@@ -244,6 +351,8 @@ def _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_coll
         cmd += ["--hide-collections", hide_collections]
     if action_name:
         cmd += ["--action", action_name]
+    if ortho_scale and ortho_scale > 0.0:
+        cmd += ["--ortho-scale", str(ortho_scale)]
     return cmd
 
 
@@ -284,6 +393,7 @@ def _run_render_inner(
     body_part: str = "full",
     action_name: str | None = None,
     supersample: int = 1,
+    ortho_scale: float = 0.0,
 ) -> None:
     render_size = sprite_size * supersample
     is_animation = (
@@ -327,7 +437,7 @@ def _run_render_inner(
         OUTPUT_FRAMES.mkdir(parents=True, exist_ok=True)
         sentinel = OUTPUT_FRAMES / ".render_done"
 
-        blender_cmd = _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections, action_name)
+        blender_cmd = _build_blender_cmd(mesh_path, render_size, frame_start, frame_end, hide_collections, action_name, ortho_scale)
         returncode, output = _run_subprocess(blender_cmd, f"blender{pass_label}")
 
         blender_ok = sentinel.exists()

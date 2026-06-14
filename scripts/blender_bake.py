@@ -63,6 +63,10 @@ def parse_args():
     parser.add_argument("--action", type=str, default=None,
                         help="Name of the action to render (e.g. 'Char_Run_Forward'). "
                              ".blend files only. If omitted, uses the action active at save time.")
+    parser.add_argument("--ortho-scale", type=float, default=0.0,
+                        help="Explicit orthographic scale (camera frame width in Blender units). "
+                             "0 = auto-fit the bounding box (default). Set a fixed value to LOCK the "
+                             "framing so every animation in a set renders at the exact same scale.")
     return parser.parse_args(argv)
 
 
@@ -129,6 +133,7 @@ def _setup_from_blend(mesh_path, size, action_name=None):
 
     add_lighting(scene)
     _sync_view_layer_visibility(scene)
+    _sync_object_visibility(scene)
 
     if action_name:
         target = bpy.data.actions.get(action_name)
@@ -172,6 +177,33 @@ def _sync_view_layer_visibility(scene):
             walk(child)
 
     walk(vl.layer_collection)
+
+
+def _sync_object_visibility(scene):
+    """Mirror object-level viewport hiding onto render hiding.
+
+    The eye/H toggle (object.hide_get) and the monitor icon
+    (object.hide_viewport) hide an object in the viewport but do NOT stop it
+    from rendering — only object.hide_render does.  PixelForge's contract is
+    "render exactly what is visible in the viewport", so any object the artist
+    has hidden individually is also hidden from the render.  (Collection-level
+    hiding is handled separately by _sync_view_layer_visibility; this only
+    touches an object's own hide_render flag, leaving collection-hidden meshes
+    such as split-body halves untouched so framing stays consistent.)
+    """
+    vl = scene.view_layers[0]
+    for obj in scene.objects:
+        try:
+            eye_hidden = obj.hide_get(view_layer=vl)
+        except (TypeError, RuntimeError):
+            try:
+                eye_hidden = obj.hide_get()
+            except RuntimeError:
+                eye_hidden = False
+        if (eye_hidden or obj.hide_viewport) and not obj.hide_render:
+            obj.hide_render = True
+            print(f"[PixelForge] Render-hiding object "
+                  f"(eye={eye_hidden}, monitor={obj.hide_viewport}): {obj.name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +255,10 @@ def load_or_generate_mesh(args, scene):
     # Compute true bounding box (min/max) across all mesh objects in world space.
     # Evaluate at the first animation frame so armature deformations are applied —
     # obj.data.vertices gives rest-pose positions and will mis-centre animated chars.
+    # NOTE: framing intentionally spans ALL meshes (incl. rig widgets / hidden
+    # collections) so every animation in a set shares one consistent scale. Do not
+    # filter to visible_get() — that makes ortho_scale pose/stray-dependent and
+    # desyncs sprite sizes across sheets.
     mesh_objects = [o for o in scene.objects if o.type == 'MESH']
     if not mesh_objects:
         raise RuntimeError("No mesh objects found in scene after import/generation.")
@@ -506,8 +542,14 @@ def main():
                 print(f"[PixelForge] Warning: collection {col_name!r} not found — skipped.")
 
     cam_ob = setup_camera(scene)
-    corners = get_bbox_corners(bbox_min, bbox_max)
-    compute_global_ortho_scale(cam_ob, center, corners)
+    if args.ortho_scale > 0.0:
+        # Locked framing: ignore the bounding box and use the explicit scale so
+        # every sheet in an animation set renders at an identical, repeatable size.
+        cam_ob.data.ortho_scale = args.ortho_scale
+        print(f"[PixelForge] Locked ortho_scale (explicit): {args.ortho_scale:.4f}")
+    else:
+        corners = get_bbox_corners(bbox_min, bbox_max)
+        compute_global_ortho_scale(cam_ob, center, corners)
 
     is_animation = (args.frame_start is not None
                     and args.frame_end is not None

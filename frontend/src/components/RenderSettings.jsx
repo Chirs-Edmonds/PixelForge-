@@ -8,8 +8,9 @@ const PRESETS = [
   { label: 'Src 256',   size: 256 },
 ]
 const LS_OUTPUT_DIR = 'pixelforge_output_dir'
+const LS_ORTHO_SCALE = 'pixelforge_ortho_scale'
 
-export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempting, isRendering, disabled }) {
+export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempting, isRendering, disabled, onPreviewParamsChange }) {
   const [spriteSize, setSpriteSize] = useState(64)
   const [isAnimation, setIsAnimation] = useState(false)
   const [frameStart, setFrameStart] = useState(1)
@@ -21,6 +22,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   const [error, setError] = useState(null)
   const [isPosting, setIsPosting] = useState(false)
   const [supersample, setSupersample] = useState(1)
+  const [orthoScale, setOrthoScale] = useState('')
   const [blendActions, setBlendActions] = useState([])
   const [selectedAction, setSelectedAction] = useState('')
   const [loadingActions, setLoadingActions] = useState(false)
@@ -28,6 +30,8 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   useEffect(() => {
     const saved = localStorage.getItem(LS_OUTPUT_DIR)
     if (saved) setOutputDir(saved)
+    const savedOrtho = localStorage.getItem(LS_ORTHO_SCALE)
+    if (savedOrtho) setOrthoScale(savedOrtho)
   }, [])
 
   useEffect(() => {
@@ -54,6 +58,11 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
       .finally(() => setLoadingActions(false))
   }, [meshFilename])
 
+  // Notify parent whenever the preview-relevant params change so it can re-fetch the 3D preview
+  useEffect(() => {
+    onPreviewParamsChange?.(selectedAction, bodyPart)
+  }, [selectedAction, bodyPart]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleActionChange(name) {
     setSelectedAction(name)
     const action = blendActions.find(a => a.name === name)
@@ -66,6 +75,11 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
   function handleOutputDirChange(val) {
     setOutputDir(val)
     localStorage.setItem(LS_OUTPUT_DIR, val)
+  }
+
+  function handleOrthoScaleChange(val) {
+    setOrthoScale(val)
+    localStorage.setItem(LS_ORTHO_SCALE, val)
   }
 
   async function handleRender() {
@@ -86,6 +100,7 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
         merge_sheets: isAnimation && mergeSheets,
         body_part: bodyPart,
         action_name: selectedAction || null,
+        ortho_scale: parseFloat(orthoScale) || 0,
       }
       if (isAnimation) {
         body.frame_start = frameStart
@@ -165,6 +180,25 @@ export function RenderSettings({ meshFilename, onRenderStarted, onRenderAttempti
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Camera scale lock — keeps every animation in a set at the same size */}
+      <div className="pf-group">
+        <span className="eyebrow">Camera scale (lock)</span>
+        <input
+          type="number"
+          min={0}
+          step="0.1"
+          placeholder="0 = auto-fit"
+          value={orthoScale}
+          onChange={e => handleOrthoScaleChange(e.target.value)}
+          className="pf-input"
+          style={{ width: 120 }}
+        />
+        <span className="field-hint">
+          0 = auto-fit (scale varies per pose/scene). Set a fixed value (e.g. <code>8.6</code>) to
+          lock the camera so every animation renders at the same size. Remembered between sessions.
+        </span>
       </div>
 
       {/* Action selector — .blend files only */}
