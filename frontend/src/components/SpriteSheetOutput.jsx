@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Viewport3D } from './Viewport3D'
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
@@ -115,14 +116,19 @@ export function SpriteSheetOutput({
   mergedUrl, refinedMergedUrl,
   splitSheets,
   isRendering = false,
+  previewUrl = null,
+  previewLoading = false,
   _noChrome = false,
 }) {
   const [selectedDir, setSelectedDir] = useState('S')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
   const [fps, setFps] = useState(8)
-  // Start on 'live' for animation, '8dir' for single-frame
-  const [activeTab, setActiveTab] = useState(() => animationUrls ? 'live' : '8dir')
+  // Start on '3dview' if only preview is available, 'live' for animation, '8dir' for single-frame
+  const [activeTab, setActiveTab] = useState(() => {
+    if (previewUrl && !animationUrls && !spriteSheetUrl) return '3dview'
+    return animationUrls ? 'live' : '8dir'
+  })
   const intervalRef = useRef(null)
 
   // Playback loop
@@ -150,8 +156,17 @@ export function SpriteSheetOutput({
     setCurrentFrame(0)
   }, [selectedDir])
 
+  // Switch to 3dview tab when previewUrl first arrives and no render output exists yet
+  useEffect(() => {
+    if (previewUrl && !spriteSheetUrl && !animationUrls) {
+      setActiveTab('3dview')
+    }
+  }, [previewUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Empty / split-body ────────────────────────────────────────────────────
-  if (!spriteSheetUrl && !refinedUrl && !animationUrls && !splitSheets) {
+  const hasRenderOutput = !!(spriteSheetUrl || refinedUrl || animationUrls || splitSheets)
+
+  if (!hasRenderOutput && !previewUrl) {
     if (isRendering) {
       return (
         <div style={{
@@ -168,10 +183,48 @@ export function SpriteSheetOutput({
         </div>
       )
     }
+    if (previewLoading) {
+      return (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          color: 'var(--pf-dim)', padding: 32, textAlign: 'center', gap: 16,
+        }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 12,
+            border: '1px solid var(--pf-border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+          }}>
+            ⬡
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <p style={{ margin: 0, fontSize: '0.85em', color: 'var(--pf-mute)' }}>
+              Preparing 3D preview…
+            </p>
+            <p style={{ margin: 0, fontSize: '0.72em', color: 'var(--pf-dim)' }}>
+              Converting model with Blender
+            </p>
+          </div>
+          {/* Indeterminate scanning progress bar */}
+          <div style={{
+            width: 180, height: 3,
+            background: 'var(--pf-border)',
+            borderRadius: 2, overflow: 'hidden', position: 'relative',
+          }}>
+            <div style={{
+              position: 'absolute', height: '100%', width: '35%',
+              background: 'var(--pf-accent)', borderRadius: 2,
+              animation: 'scan 1.6s ease-in-out infinite',
+            }} />
+          </div>
+        </div>
+      )
+    }
     return <EmptyState />
   }
 
   if (splitSheets) {
+    // SplitSheetsOutput does NOT receive previewUrl — 3D View tab is top-level only
     return <SplitSheetsOutput splitSheets={splitSheets} frameCount={frameCount} spriteSize={spriteSize} />
   }
 
@@ -193,8 +246,9 @@ export function SpriteSheetOutput({
   const isAnimMode = !!animationUrls
 
   const tabs = [
+    ...(previewUrl && !_noChrome ? [{ id: '3dview', label: '3D View' }] : []),
     ...(isAnimMode ? [{ id: 'live',  label: 'Live Preview' }] : []),
-    { id: '8dir',   label: '8-Dir' },
+    ...(hasRenderOutput ? [{ id: '8dir', label: '8-Dir' }] : []),
     ...(hasMaster ? [{ id: 'master', label: 'Master Sheet' }] : []),
     ...(hasCompare ? [{ id: 'compare', label: 'Compare' }] : []),
   ]
@@ -581,11 +635,28 @@ export function SpriteSheetOutput({
     </div>
   )
 
+  const viewportTab = previewUrl ? (
+    <div style={{
+      padding: 'var(--pf-pad)',
+      display: 'flex', flexDirection: 'column', gap: 8,
+      height: '100%', boxSizing: 'border-box',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="eyebrow" style={{ marginBottom: 0 }}>3D Preview</span>
+        <span style={{ fontSize: '0.7em', color: 'var(--pf-dim)' }}>
+          Drag to rotate · Scroll to zoom · Right-drag to pan
+        </span>
+      </div>
+      <Viewport3D url={previewUrl} />
+    </div>
+  ) : null
+
   const tabContent = {
-    live:    liveTab,
-    '8dir':  eightDirTab,
-    master:  masterTab,
-    compare: compareTab,
+    '3dview': viewportTab,
+    live:     liveTab,
+    '8dir':   eightDirTab,
+    master:   masterTab,
+    compare:  compareTab,
   }
 
   const inner = (

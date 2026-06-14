@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     (OUTPUT_DIR / "sheets").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "merged").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "refined").mkdir(parents=True, exist_ok=True)
+    (OUTPUT_DIR / "preview").mkdir(parents=True, exist_ok=True)
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     yield
 

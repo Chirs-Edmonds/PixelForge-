@@ -63,6 +63,10 @@ def parse_args():
     parser.add_argument("--action", type=str, default=None,
                         help="Name of the action to render (e.g. 'Char_Run_Forward'). "
                              ".blend files only. If omitted, uses the action active at save time.")
+    parser.add_argument("--ortho-scale", type=float, default=0.0,
+                        help="Explicit orthographic scale (camera frame width in Blender units). "
+                             "0 = auto-fit the bounding box (default). Set a fixed value to LOCK the "
+                             "framing so every animation in a set renders at the exact same scale.")
     return parser.parse_args(argv)
 
 
@@ -538,8 +542,14 @@ def main():
                 print(f"[PixelForge] Warning: collection {col_name!r} not found — skipped.")
 
     cam_ob = setup_camera(scene)
-    corners = get_bbox_corners(bbox_min, bbox_max)
-    compute_global_ortho_scale(cam_ob, center, corners)
+    if args.ortho_scale > 0.0:
+        # Locked framing: ignore the bounding box and use the explicit scale so
+        # every sheet in an animation set renders at an identical, repeatable size.
+        cam_ob.data.ortho_scale = args.ortho_scale
+        print(f"[PixelForge] Locked ortho_scale (explicit): {args.ortho_scale:.4f}")
+    else:
+        corners = get_bbox_corners(bbox_min, bbox_max)
+        compute_global_ortho_scale(cam_ob, center, corners)
 
     is_animation = (args.frame_start is not None
                     and args.frame_end is not None

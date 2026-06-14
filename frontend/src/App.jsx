@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { MeshInput } from './components/MeshInput'
 import { RenderSettings } from './components/RenderSettings'
 import { StatusBar } from './components/StatusBar'
@@ -23,10 +23,38 @@ export default function App() {
   const [refinedAnimationUrls, setRefinedAnimationUrls] = useState(null)
   const [refinedMergedUrl, setRefinedMergedUrl]         = useState(null)
   const [splitSheets, setSplitSheets]       = useState(null)
+  const [previewUrl, setPreviewUrl]         = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewAction, setPreviewAction]   = useState('')
+  const [previewBodyPart, setPreviewBodyPart] = useState('full')
   const [activeView, setActiveView]         = useState('forge')
 
   const animConfigRef = useRef(null)
   const renderDoneRef = useRef(false)
+
+  // Re-fetch the 3D preview GLB whenever mesh, action, or body part changes.
+  // 400ms debounce prevents a Blender process being spawned for every intermediate state change
+  // (e.g. blend-info loading sets action right after meshFilename is set).
+  useEffect(() => {
+    if (!meshFilename) { setPreviewUrl(null); setPreviewLoading(false); return }
+    setPreviewLoading(true)
+    let cancelled = false
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ filename: meshFilename })
+      if (previewAction)   params.set('action_name', previewAction)
+      if (previewBodyPart && previewBodyPart !== 'full') params.set('body_part', previewBodyPart)
+      fetch(`/api/preview-mesh?${params}`)
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json() })
+        .then(data => {
+          if (!cancelled) { setPreviewUrl(`/api${data.url}?t=${Date.now()}`); setPreviewLoading(false) }
+        })
+        .catch(err => {
+          console.warn('[PixelForge] preview-mesh failed:', err)
+          if (!cancelled) { setPreviewUrl(null); setPreviewLoading(false) }
+        })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [meshFilename, previewAction, previewBodyPart])
 
   function handleRenderDone(jobData) {
     if (renderDoneRef.current) return
@@ -188,6 +216,10 @@ export default function App() {
             onRenderAttempting={handleRenderAttempting}
             isRendering={isRendering}
             disabled={false}
+            onPreviewParamsChange={(action, bodyPart) => {
+              setPreviewAction(action || '')
+              setPreviewBodyPart(bodyPart || 'full')
+            }}
           />
 
           {renderJobId && (
@@ -221,6 +253,8 @@ export default function App() {
             refinedMergedUrl={refinedMergedUrl}
             splitSheets={splitSheets}
             isRendering={isRendering}
+            previewUrl={previewUrl}
+            previewLoading={previewLoading}
           />
         </div>
 
