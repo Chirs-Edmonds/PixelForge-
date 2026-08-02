@@ -8,6 +8,8 @@ Each job has the shape:
         "progress_msg": str,        # human-readable progress message
         "error":        str | None, # error message if status == "error"
         "output":       str | None, # relative output path when done
+        "result":       dict | None,# full result payload for jobs whose caller
+                                    # needs more than a single path (e.g. /refine)
     }
 """
 
@@ -23,6 +25,7 @@ def create_job(job_id: str) -> None:
         "progress_msg": "Queued...",
         "error":        None,
         "output":       None,
+        "result":       None,
     }
 
 

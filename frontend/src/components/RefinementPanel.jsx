@@ -25,6 +25,39 @@ const POSTERIZE_OPTIONS = [
   { value: 4, label: '16 col' },
 ]
 
+const REFINE_POLL_MS = 1000
+
+/**
+ * /refine queues a background job and returns a job_id. Poll /status until the
+ * job settles, then hand back the same payload the endpoint used to return
+ * synchronously so the existing onRefined callbacks are unchanged.
+ */
+async function pollRefineJob(jobId) {
+  if (!jobId) throw new Error('Refinement did not start — no job id returned.')
+
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, REFINE_POLL_MS))
+
+    const res = await fetch(`/api/status/${jobId}`)
+    if (!res.ok) {
+      throw new Error(
+        res.status === 404
+          ? 'Refinement job was lost — the backend may have restarted.'
+          : `Could not read refinement status (HTTP ${res.status}).`
+      )
+    }
+
+    const job = await res.json()
+    if (job.status === 'error') {
+      throw new Error(job.error || job.progress_msg || 'Refinement failed')
+    }
+    if (job.status === 'done') {
+      if (!job.result) throw new Error('Refinement finished but returned no output.')
+      return job.result
+    }
+  }
+}
+
 function Toggle({ on, onChange, label, hint }) {
   return (
     <div
@@ -116,13 +149,16 @@ export function RefinementPanel({ disabled, onRefined, onAnimationRefined, onSpl
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Refinement failed')
+
+      const result = await pollRefineJob(data.job_id)
+
       setSuccess(true)
       if (isSplit) {
-        onSplitRefined(data)
+        onSplitRefined(result)
       } else if (isAnimation) {
-        onAnimationRefined(data)
+        onAnimationRefined(result)
       } else {
-        onRefined(`/api/output/${data.output}?t=${Date.now()}`)
+        onRefined(`/api/output/${result.output}?t=${Date.now()}`)
       }
     } catch (e) {
       setError(e.message)

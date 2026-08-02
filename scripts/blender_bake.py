@@ -33,6 +33,7 @@ import sys
 import os
 import math
 import argparse
+import traceback
 
 import bpy
 import mathutils
@@ -446,58 +447,91 @@ ELEVATION_DEG = 35.264   # True isometric: arctan(1 / sqrt(2))
 CAMERA_DISTANCE = 6.0    # Blender units radius of orbit sphere
 
 
+def _render_still(scene, out_path, label, done, total):
+    """Render one still and confirm it landed on disk.
+
+    Blender's render operator can return CANCELLED (or succeed but write
+    nothing, e.g. when the output path is locked) without raising. Left
+    unchecked those turn into a missing-frame error much later in assemble,
+    so failures are surfaced here with the direction/frame that caused them.
+    """
+    scene.render.filepath = out_path
+    try:
+        result = bpy.ops.render.render(write_still=True)
+    except Exception as exc:
+        raise RuntimeError(f"{label} — Blender raised during render: {exc}") from exc
+
+    if 'CANCELLED' in result:
+        raise RuntimeError(f"{label} — render returned CANCELLED (completed {done}/{total} frames)")
+    if not os.path.exists(out_path):
+        raise RuntimeError(f"{label} — no file written to {out_path} (completed {done}/{total} frames)")
+
+
 def render_all_directions(scene, cam_ob, center, outdir, frame_start, frame_end, is_animation):
     os.makedirs(outdir, exist_ok=True)
     elev_rad = math.radians(ELEVATION_DEG)
 
-    if is_animation:
-        # Animation mode: position camera once per direction, render all frames.
-        # Outer loop = directions (avoid repositioning 8× per frame).
-        for direction_name, azimuth_deg in DIRECTIONS:
-            az_rad = math.radians(azimuth_deg)
+    frames_per_dir = (frame_end - frame_start + 1) if is_animation else 1
+    total = len(DIRECTIONS) * frames_per_dir
+    done = 0
 
-            x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
-            y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
-            z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
+    try:
+        if is_animation:
+            # Animation mode: position camera once per direction, render all frames.
+            # Outer loop = directions (avoid repositioning 8× per frame).
+            for direction_name, azimuth_deg in DIRECTIONS:
+                az_rad = math.radians(azimuth_deg)
 
-            cam_ob.location = (x, y, z)
-            look_vec = mathutils.Vector((center.x - x, center.y - y, center.z - z)).normalized()
-            rot_quat = look_vec.to_track_quat('-Z', 'Y')
-            cam_ob.rotation_euler = rot_quat.to_euler()
+                x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
+                y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
+                z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
 
-            dir_out = os.path.join(outdir, direction_name)
-            os.makedirs(dir_out, exist_ok=True)
+                cam_ob.location = (x, y, z)
+                look_vec = mathutils.Vector((center.x - x, center.y - y, center.z - z)).normalized()
+                rot_quat = look_vec.to_track_quat('-Z', 'Y')
+                cam_ob.rotation_euler = rot_quat.to_euler()
 
-            for f in range(frame_start, frame_end + 1):
-                scene.frame_set(f)
-                out_path = os.path.join(dir_out, f"{f:04d}.png")
-                scene.render.filepath = out_path
-                bpy.ops.render.render(write_still=True)
-                print(f"[PixelForge] {direction_name} frame {f}/{frame_end} -> {out_path}")
+                dir_out = os.path.join(outdir, direction_name)
+                os.makedirs(dir_out, exist_ok=True)
 
-        print(f"[PixelForge] Animation ({frame_start}-{frame_end}) rendered to: {outdir}/{{N,NE,...NW}}/")
-    else:
-        # Single-frame mode: set frame once, render 8 directions to flat files.
-        scene.frame_set(frame_start)
+                for f in range(frame_start, frame_end + 1):
+                    scene.frame_set(f)
+                    out_path = os.path.join(dir_out, f"{f:04d}.png")
+                    _render_still(scene, out_path, f"{direction_name} frame {f}", done, total)
+                    done += 1
+                    print(f"[PixelForge] {direction_name} frame {f}/{frame_end} -> {out_path}")
 
-        for direction_name, azimuth_deg in DIRECTIONS:
-            az_rad = math.radians(azimuth_deg)
+            print(f"[PixelForge] Animation ({frame_start}-{frame_end}) rendered to: {outdir}/{{N,NE,...NW}}/")
+        else:
+            # Single-frame mode: set frame once, render 8 directions to flat files.
+            scene.frame_set(frame_start)
 
-            x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
-            y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
-            z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
+            for direction_name, azimuth_deg in DIRECTIONS:
+                az_rad = math.radians(azimuth_deg)
 
-            cam_ob.location = (x, y, z)
-            look_vec = mathutils.Vector((center.x - x, center.y - y, center.z - z)).normalized()
-            rot_quat = look_vec.to_track_quat('-Z', 'Y')
-            cam_ob.rotation_euler = rot_quat.to_euler()
+                x = center.x - CAMERA_DISTANCE * math.cos(elev_rad) * math.sin(az_rad)
+                y = center.y + CAMERA_DISTANCE * math.cos(elev_rad) * math.cos(az_rad)
+                z = center.z + CAMERA_DISTANCE * math.sin(elev_rad)
 
-            out_path = os.path.join(outdir, f"{direction_name}.png")
-            scene.render.filepath = out_path
-            bpy.ops.render.render(write_still=True)
-            print(f"[PixelForge] Rendered {direction_name} -> {out_path}")
+                cam_ob.location = (x, y, z)
+                look_vec = mathutils.Vector((center.x - x, center.y - y, center.z - z)).normalized()
+                rot_quat = look_vec.to_track_quat('-Z', 'Y')
+                cam_ob.rotation_euler = rot_quat.to_euler()
 
-        print(f"[PixelForge] All 8 directions rendered to: {outdir}")
+                out_path = os.path.join(outdir, f"{direction_name}.png")
+                _render_still(scene, out_path, f"direction {direction_name}", done, total)
+                done += 1
+                print(f"[PixelForge] Rendered {direction_name} -> {out_path}")
+
+            print(f"[PixelForge] All 8 directions rendered to: {outdir}")
+    except BaseException:
+        # Blender exits 0 even when its embedded Python dies, so the traceback is
+        # the only signal the backend gets. Print it with enough context to tell
+        # which direction/frame died and how far the render got before it did.
+        print(f"[PixelForge] ERROR: render aborted after {done}/{total} frames.")
+        print(f"[PixelForge] ERROR: partial output left in {outdir} — no .render_done sentinel written.")
+        traceback.print_exc()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -575,4 +609,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Blender returns exit code 0 even when the embedded Python raises, so the
+    # backend detects failure via the missing .render_done sentinel. Catch here
+    # only to guarantee the reason is in the log, then re-raise.
+    try:
+        main()
+    except BaseException:
+        print("[PixelForge] FATAL: blender_bake.py did not complete — sentinel not written.")
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
