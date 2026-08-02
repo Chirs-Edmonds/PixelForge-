@@ -12,7 +12,6 @@ import json
 import re
 import shutil
 import subprocess
-import tempfile
 import traceback
 import uuid
 from pathlib import Path
@@ -48,27 +47,116 @@ VALID_SIZES = {16, 32, 64, 128, 256}
 
 _ALLOWED_MESH_EXTENSIONS = (".glb", ".gltf", ".blend", ".fbx", ".obj")
 
+MAX_UPLOAD_BYTES = 250 * 1024 * 1024   # 250 MB — rigged .blend files with long actions get big
+
+
+def _asset_path(filename: str) -> Path:
+    """Resolve a caller-supplied filename to a path inside assets/, or reject it.
+
+    Filenames arrive from request bodies and query strings, so the resolved path
+    must be confined to ASSETS_DIR — otherwise "../../etc/passwd" style values
+    would let a request read or render arbitrary files on disk.
+    """
+    safe_name = Path(filename).name
+    if not safe_name or safe_name in {".", ".."}:
+        raise HTTPException(400, "Invalid filename.")
+
+    path = ASSETS_DIR / safe_name
+    if not path.resolve().is_relative_to(ASSETS_DIR.resolve()):
+        raise HTTPException(400, "Invalid filename.")
+    return path
+
+
+def _looks_like_mesh(ext: str, head: bytes) -> bool:
+    """Sniff the leading bytes of an upload to confirm they match the extension.
+
+    Binary formats carry a fixed signature. The text formats (.gltf, .obj, and
+    ASCII .fbx) have none, so they are checked for a plausible opening token
+    instead — enough to reject a renamed executable or archive.
+    """
+    if ext == ".glb":
+        return head[:4] == b"glTF"
+
+    if ext == ".blend":
+        # Uncompressed .blend opens with "BLENDER". Blender 3.0+ writes zstd by
+        # default and older builds used gzip, so accept those container magics too.
+        return (head[:7] == b"BLENDER"
+                or head[:4] == b"\x28\xb5\x2f\xfd"      # zstd
+                or head[:2] == b"\x1f\x8b")             # gzip
+
+    if ext == ".fbx":
+        if head[:20] == b"Kaydara FBX Binary  ":
+            return True
+        # ASCII FBX: a comment banner, or the FBXHeaderExtension node near the top.
+        return head.lstrip()[:1] == b";" or b"FBXHeaderExtension" in head[:2048]
+
+    text = head.lstrip(b"\xef\xbb\xbf").lstrip()
+
+    if ext == ".gltf":
+        return text[:1] == b"{"
+
+    if ext == ".obj":
+        if b"\x00" in head:
+            return False        # NUL bytes mean this is not a text file
+        first_line = text.split(b"\n", 1)[0].strip().lower()
+        return first_line.startswith(
+            (b"#", b"v ", b"vn ", b"vt ", b"o ", b"g ", b"s ", b"f ", b"mtllib", b"usemtl")
+        )
+
+    return False
+
 
 @router.post("/upload-mesh")
 async def upload_mesh(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(_ALLOWED_MESH_EXTENSIONS):
         raise HTTPException(400, "Supported formats: .glb, .gltf, .blend, .fbx, .obj")
 
-    # Strip any path separators the browser might include in the filename
-    safe_filename = Path(file.filename).name
-    if not safe_filename:
-        raise HTTPException(400, "Invalid filename.")
+    dest = _asset_path(file.filename)
+    safe_filename = dest.name
+    ext = dest.suffix.lower()
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = ASSETS_DIR / safe_filename
+
+    # Stream to a sidecar file first: a rejected upload must never truncate or
+    # replace a good mesh that already carries the same name.
+    partial = dest.with_name(dest.name + ".part")
+    written = 0
+    header_checked = False
+
     try:
-        async with aiofiles.open(dest, "wb") as out:
+        async with aiofiles.open(partial, "wb") as out:
             while True:
                 chunk = await file.read(1024 * 1024)  # 1 MB chunks — avoids OOM on large meshes
                 if not chunk:
                     break
+
+                if not header_checked:
+                    if not _looks_like_mesh(ext, chunk):
+                        raise HTTPException(400, f"File contents do not look like a valid {ext} mesh.")
+                    header_checked = True
+
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        413,
+                        f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit."
+                    )
                 await out.write(chunk)
+    except HTTPException:
+        partial.unlink(missing_ok=True)
+        raise
     except OSError as e:
+        partial.unlink(missing_ok=True)
+        raise HTTPException(500, f"Failed to save file: {e}")
+
+    if written == 0:
+        partial.unlink(missing_ok=True)
+        raise HTTPException(400, "Uploaded file is empty.")
+
+    try:
+        partial.replace(dest)
+    except OSError as e:
+        partial.unlink(missing_ok=True)
         raise HTTPException(500, f"Failed to save file: {e}")
 
     # Invalidate all cached preview GLBs for this file (all action/body_part combos)
@@ -93,9 +181,9 @@ async def get_blend_info(filename: str):
     if not filename.lower().endswith(".blend"):
         return {"actions": []}
 
-    filepath = ASSETS_DIR / filename
+    filepath = _asset_path(filename)
     if not filepath.exists():
-        raise HTTPException(404, f"File not found in assets/: {filename}")
+        raise HTTPException(404, f"File not found in assets/: {filepath.name}")
 
     cmd = [
         str(BLENDER_EXE),
@@ -156,12 +244,8 @@ async def preview_mesh(
     if ext not in {".glb", ".gltf", ".blend", ".fbx", ".obj"}:
         raise HTTPException(400, f"Unsupported format: {ext}")
 
-    safe_name = Path(filename).name
-    src_path = ASSETS_DIR / safe_name
-    try:
-        src_path.resolve().relative_to(ASSETS_DIR.resolve())
-    except ValueError:
-        raise HTTPException(400, "Invalid filename.")
+    src_path = _asset_path(filename)
+    safe_name = src_path.name
     if not src_path.exists():
         raise HTTPException(404, f"File not found in assets/: {safe_name}")
 
@@ -243,10 +327,14 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     if req.ortho_scale < 0.0:
         raise HTTPException(400, "ortho_scale must be >= 0 (0 = auto-fit).")
 
+    # Confine the mesh to assets/ and pass the sanitized basename downstream —
+    # _build_blender_cmd joins it onto ASSETS_DIR again.
+    safe_mesh_path = None
     if req.mesh_path:
-        mesh_abs = ASSETS_DIR / req.mesh_path
+        mesh_abs = _asset_path(req.mesh_path)
         if not mesh_abs.exists():
-            raise HTTPException(404, f"Mesh not found in assets/: {req.mesh_path}")
+            raise HTTPException(404, f"Mesh not found in assets/: {mesh_abs.name}")
+        safe_mesh_path = mesh_abs.name
 
     if (req.frame_start is None) != (req.frame_end is None):
         raise HTTPException(400, "frame_start and frame_end must both be provided for animation.")
@@ -267,7 +355,7 @@ async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     create_job(job_id)
     background_tasks.add_task(
-        _run_render, job_id, req.sprite_size, req.mesh_path, req.frame_start, req.frame_end,
+        _run_render, job_id, req.sprite_size, safe_mesh_path, req.frame_start, req.frame_end,
         safe_name, req.output_dir, req.merge_sheets, req.body_part, req.action_name, req.supersample,
         req.ortho_scale,
     )

@@ -30,14 +30,17 @@ start.bat / stop.bat        One-click launchers (kill old processes, start both 
 run_pipeline.py             CLI orchestrator (all phases)
 scripts/
   blender_bake.py           Blender-internal renderer (8 directions × frames)
+  blend_info.py             Blender-internal: .blend action names + frame ranges → JSON
+  blender_preview.py        Blender-internal: any mesh format → GLB for browser preview
   assemble_sheet.py         Pillow sheet assembler
   refine.py                 Post-processing: upscale, quantize, dither, outline
   tripo3d.py                Tripo3D API: text/image → .glb
 backend/
   main.py                   FastAPI app; mounts /output and /assets as static
   jobs.py                   In-memory job store (wiped on restart)
-  routes/render.py          POST /render, POST /upload-mesh, GET /status/{id}
-  routes/refine.py          POST /refine
+  routes/render.py          POST /render, POST /upload-mesh, GET /status/{id},
+                            GET /blend-info, GET /preview-mesh
+  routes/refine.py          POST /refine (async job) + Godot auto-export
   routes/mesh.py            POST /generate-mesh
 frontend/
   src/App.jsx               Root state machine (animConfig, animConfigRef, renderJobId)
@@ -46,8 +49,9 @@ frontend/
     Sidebar.jsx             56px icon nav (Forge / Library / Queue / Output / Settings)
     MeshInput.jsx           Upload tab + Tripo3D generate tab
     RenderSettings.jsx      All render controls + Render button
-    RefinementPanel.jsx     Post-process controls + Refine button
-    SpriteSheetOutput.jsx   Tabbed preview (Live Preview / 8-Dir / Master Sheet / Compare)
+    RefinementPanel.jsx     Post-process controls + Refine button (polls the refine job)
+    SpriteSheetOutput.jsx   Tabbed preview (3D View / Live Preview / 8-Dir / Master / Compare)
+    Viewport3D.jsx          three.js GLB viewer for the 3D View tab
     StatusBar.jsx           Animated job-status dot + progress message
   src/hooks/
     useJobStatus.js         GET /status/{id} every 2s until done/error
@@ -181,37 +185,34 @@ cd frontend && npm run dev
 
 ---
 
-## Current Branch / In-Progress Work
+## Current Branch / Status
 
-**Branch:** `feature/v0.2-ui-redesign`
+**Branch:** `main` — everything below is merged; no feature branches outstanding.
 
-**Status:** v0.2 UI redesign in progress (not yet merged to main). Changes so far:
-- New CSS design system: CSS custom properties (`--pf-accent` = `#8b5cf6`, `--pf-bg`, `--pf-panel`, `--pf-border`, `--pf-text`, `--pf-muted`, `--pf-err`, `--pf-good`, etc.)
-- Typography: Geist (body) + VT323 (monospace/pixel aesthetic) from Google Fonts
-- 3-pane layout: TopBar + Sidebar + main content area
-- New `TopBar.jsx` and `Sidebar.jsx` components
-- Tabbed preview panel in `SpriteSheetOutput.jsx` (Live Preview / 8-Dir / Master Sheet / Compare)
-- Direction wheel in animation Live Preview tab
-
-**What's merged to main (last stable):**
-- Phase 1–6 all complete (Blender bake, refinement, Tripo3D, FastAPI, animation, launcher)
+**Complete:**
+- Phase 1–6 (Blender bake, refinement, Tripo3D, FastAPI, animation, launcher)
 - Pixel art quality suite: alpha slider, outline injection, super-sampling, Bayer dithering, posterization
 - Split-body render pipeline (UpperBody/LowerBody collections)
-- `.blend` action selection via blend-info endpoint
-- One-click `start.bat` / `stop.bat`
+- `.blend` action selection via the blend-info endpoint
+- v0.2 UI: CSS design system (`--pf-accent` = `#8b5cf6`), Geist + VT323 typography, three-pane
+  TopBar/Sidebar layout, tabbed preview panel with direction wheel
+- Godot auto-export after refinement (`_export_to_godot`, writes `sprite_config.json`)
+- In-browser 3D mesh preview (`blender_preview.py` → GLB, `Viewport3D.jsx`) + locked camera scale
 
 ---
 
-## Known Issues
+## Input Validation & Job Safety
 
-| Issue | Location | Severity |
-|-------|----------|----------|
-| Animation preview `translateX` hardcodes 192px per frame — only works for 64px sprites | `SpriteSheetOutput.jsx` | Medium |
-| Sentinel `.render_done` not written if Blender crashes mid-animation (no try/except around render loop) | `scripts/blender_bake.py` | Medium |
-| Path traversal: `mesh_path` not verified to stay within `assets/` | `backend/routes/render.py` | Security |
-| File upload: only checks `.glb` extension, no magic bytes, no size limit | `backend/routes/render.py` | Security |
-| `/refine` runs synchronously, blocks HTTP request for full upscale duration | `backend/routes/refine.py` | Low |
-| `import tempfile` unused | `backend/routes/render.py:11` | Trivial |
+All items in the former Known Issues table were resolved on 2026-08-02.
+
+| Area | Behaviour |
+|------|-----------|
+| Asset paths | `_asset_path()` reduces any supplied filename to its basename and asserts the resolved path is under `assets/`. Applied to `/render`, `/blend-info`, `/preview-mesh`. |
+| Upload validation | Per-extension magic-byte sniffing, 250 MB cap, empty-file rejection, atomic `.part` → rename so a rejected upload can't clobber an existing mesh. |
+| Blender render errors | `_render_still()` checks for CANCELLED and a missing output file; the render loop and `__main__` print the failing direction/frame plus a traceback before re-raising. The `.render_done` sentinel stays the backend's success signal. |
+| `/refine` | Validation is synchronous (immediate 400/404); image work runs as a background job. Returns `{"job_id": ...}`; poll `GET /status/{job_id}` and read the `result` field. |
+
+**No known open issues.**
 
 ---
 

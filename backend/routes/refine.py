@@ -7,15 +7,24 @@ Routes:
 
 Refine logic runs in-process via Pillow (no subprocess). Pillow must be installed in
 the same Python environment as uvicorn: py -3.12 -m pip install Pillow
+
+/refine validates its inputs synchronously (so bad requests still fail fast) but runs
+the image work as a background job — a 36-frame master sheet takes long enough to
+upscale that holding the HTTP request open times the browser out. Callers get a
+job_id and poll GET /status/{job_id}; the payload lands in the job's "result" field.
 """
 
 import json
 import re
 import shutil
+import traceback
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
+
+from backend.jobs import create_job, update_job
 
 try:
     from PIL import Image, ImageChops, ImageFilter, ImageOps
@@ -218,8 +227,115 @@ def _export_to_godot(body_part: str, name: str, godot_export: GodotExportConfig)
     print(f"[PixelForge→Godot] Updated {config_path}")
 
 
+def _build_plan(req: RefineRequest, name: str) -> tuple[list[tuple[Path, Path, str]], dict]:
+    """Resolve the request into (passes, result_payload).
+
+    Every source file is checked here, on the request thread, so a missing sheet
+    still comes back as an immediate 404 rather than surfacing later as a failed
+    background job. Each pass is (src, dst, label); label is used for progress
+    messages and error text.
+    """
+    if req.is_animation:
+        if not OUTPUT_SHEETS.exists():
+            raise HTTPException(404, "No animation sheets found. Run /render first.")
+
+        if req.body_part == "split":
+            passes = []
+            missing = []
+            for suffix in ("_upper", "_legs"):
+                prefix = f"{name}{suffix}"
+                master_src = OUTPUT_MERGED / f"{prefix}_all.png"
+                if not master_src.exists():
+                    missing.append(f"{suffix}: no merged master sheet")
+                    continue
+                passes.append((
+                    master_src,
+                    OUTPUT_REFINED / f"{prefix}_all_refined.png",
+                    f"master{suffix}",
+                ))
+            if missing:
+                raise HTTPException(
+                    404,
+                    f"Refinement input missing — {'; '.join(missing)}. "
+                    "Re-render with 'Merge 8-direction' enabled."
+                )
+            return passes, {
+                "output":           f"sheets/{name}",
+                "is_animation":     True,
+                "is_split":         True,
+                "has_master_upper": True,
+                "has_master_legs":  True,
+            }
+
+        master_src = OUTPUT_MERGED / f"{name}_all.png"
+        if not master_src.exists():
+            raise HTTPException(
+                404,
+                "No merged master sheet found. Run /render with 'Merge 8-direction' enabled first."
+            )
+        passes = [(master_src, OUTPUT_REFINED / f"{name}_all_refined.png", "master")]
+        return passes, {"output": f"sheets/{name}", "is_animation": True, "has_master": True}
+
+    if req.body_part == "split":
+        passes = []
+        outputs = []
+        for base in (f"{name}_upper", f"{name}_legs"):
+            src = PROJECT_ROOT / "output" / f"{base}.png"
+            if not src.exists():
+                raise HTTPException(404, f"No sprite sheet found: {base}.png. Run /render first.")
+            passes.append((src, OUTPUT_REFINED / f"{base}_refined.png", base))
+            outputs.append(f"refined/{base}_refined.png")
+        return passes, {"output": outputs, "is_split": True}
+
+    src = PROJECT_ROOT / "output" / f"{name}.png"
+    if not src.exists():
+        raise HTTPException(404, "No sprite sheet found. Run /render first.")
+    passes = [(src, OUTPUT_REFINED / f"{name}_refined.png", name)]
+    return passes, {"output": f"refined/{name}_refined.png"}
+
+
+def _run_refine_job(
+    job_id: str,
+    req: RefineRequest,
+    name: str,
+    passes: list[tuple[Path, Path, str]],
+    result: dict,
+) -> None:
+    """Background worker: run every refine pass, then the optional Godot export."""
+    try:
+        total = len(passes)
+        for i, (src, dst, label) in enumerate(passes, start=1):
+            update_job(
+                job_id, status="running", step="refine",
+                progress_msg=f"Refining {label} ({i}/{total})...",
+            )
+            try:
+                _call_refine(req, src, dst)
+            except Exception as e:
+                raise RuntimeError(f"Refinement failed for {label}: {e}") from e
+
+        if req.godot_export is not None:
+            update_job(job_id, status="running", step="godot", progress_msg="Exporting to Godot...")
+            try:
+                _export_to_godot(req.body_part, name, req.godot_export)
+            except Exception as e:
+                # Non-fatal: the refined sheets are still valid output.
+                print(f"[PixelForge→Godot] WARNING: export failed: {e}")
+
+        update_job(
+            job_id, status="done", step="done",
+            progress_msg="Refinement complete.",
+            output=result.get("output") if isinstance(result.get("output"), str) else None,
+            result=result,
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[PixelForge Backend] ERROR in _run_refine_job:\n{tb}")
+        update_job(job_id, status="error", step="error", progress_msg=str(e), error=str(e))
+
+
 @router.post("/refine")
-async def run_refine(req: RefineRequest):
+async def run_refine(req: RefineRequest, background_tasks: BackgroundTasks):
     nothing_to_do = not req.upscale and req.colors == 0 and not req.outline and req.posterize_bits == 0
     if nothing_to_do:
         raise HTTPException(400, "Nothing to do: enable at least one refinement option.")
@@ -239,89 +355,9 @@ async def run_refine(req: RefineRequest):
     # Sanitize name the same way render.py does — files on disk use the safe version.
     name = _SAFE_NAME.sub('_', req.name).strip('_') or 'sprite_sheet'
 
-    if req.is_animation:
-        if not OUTPUT_SHEETS.exists():
-            raise HTTPException(404, "No animation sheets found. Run /render first.")
+    passes, result = _build_plan(req, name)
 
-        if req.body_part == "split":
-            failed = []
-            has_master_upper = False
-            has_master_legs  = False
-
-            for suffix, master_flag in [("_upper", "upper"), ("_legs", "legs")]:
-                prefix = f"{name}{suffix}"
-                master_src = OUTPUT_MERGED / f"{prefix}_all.png"
-                master_dst = OUTPUT_REFINED / f"{prefix}_all_refined.png"
-                if not master_src.exists():
-                    failed.append(f"{suffix}: no merged master sheet — run render with 'Merge 8-direction' enabled")
-                    continue
-                try:
-                    _call_refine(req, master_src, master_dst)
-                    if master_flag == "upper":
-                        has_master_upper = True
-                    else:
-                        has_master_legs = True
-                except Exception as e:
-                    failed.append(f"{suffix}/master: {e}")
-
-            if failed:
-                raise HTTPException(500, f"Refinement failed: {'; '.join(failed)}")
-
-            if req.godot_export is not None:
-                try:
-                    _export_to_godot(req.body_part, name, req.godot_export)
-                except Exception as e:
-                    print(f"[PixelForge→Godot] WARNING: export failed: {e}")
-
-            return {
-                "output":           f"sheets/{name}",
-                "is_animation":     True,
-                "is_split":         True,
-                "has_master_upper": has_master_upper,
-                "has_master_legs":  has_master_legs,
-            }
-
-        master_src = OUTPUT_MERGED / f"{name}_all.png"
-        master_dst = OUTPUT_REFINED / f"{name}_all_refined.png"
-        if not master_src.exists():
-            raise HTTPException(
-                404,
-                "No merged master sheet found. Run /render with 'Merge 8-direction' enabled first."
-            )
-        try:
-            _call_refine(req, master_src, master_dst)
-        except Exception as e:
-            raise HTTPException(500, f"Refinement failed: {e}")
-
-        if req.godot_export is not None:
-            try:
-                _export_to_godot(req.body_part, name, req.godot_export)
-            except Exception as e:
-                print(f"[PixelForge→Godot] WARNING: export failed: {e}")
-
-        return {"output": f"sheets/{name}", "is_animation": True, "has_master": True}
-
-    if req.body_part == "split":
-        suffixes = [("_upper", f"{name}_upper"), ("_legs", f"{name}_legs")]
-        outputs = []
-        for _, base in suffixes:
-            src = PROJECT_ROOT / "output" / f"{base}.png"
-            dst = OUTPUT_REFINED / f"{base}_refined.png"
-            if not src.exists():
-                raise HTTPException(404, f"No sprite sheet found: {base}.png. Run /render first.")
-            try:
-                _call_refine(req, src, dst)
-                outputs.append(f"refined/{base}_refined.png")
-            except Exception as e:
-                raise HTTPException(500, f"Refinement failed for {base}: {e}")
-        return {"output": outputs, "is_split": True}
-
-    src = PROJECT_ROOT / "output" / f"{name}.png"
-    dst = OUTPUT_REFINED / f"{name}_refined.png"
-    if not src.exists():
-        raise HTTPException(404, "No sprite sheet found. Run /render first.")
-    try:
-        _call_refine(req, src, dst)
-    except Exception as e:
-        raise HTTPException(500, f"Refinement failed: {e}")
-    return {"output": f"refined/{name}_refined.png"}
+    job_id = str(uuid.uuid4())
+    create_job(job_id)
+    background_tasks.add_task(_run_refine_job, job_id, req, name, passes, result)
+    return {"job_id": job_id}
